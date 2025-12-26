@@ -139,12 +139,16 @@ export const Api = {
   },
 
   // --- Guest Side (No Auth Header usually, or minimal) ---
-  findMatches: async (linkId: string, selfieImage: string) => {
+  // Updated to include PIN
+  findMatches: async (linkId: string, selfieImage: string, pin?: string) => {
     const res = await fetch(`${API_BASE}/search`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ linkId, selfieImage })
+      body: JSON.stringify({ linkId, selfieImage, pin }) // Passing PIN here
     });
+    if (res.status === 401 || res.status === 403) {
+        throw new Error("Invalid PIN");
+    }
     if (!res.ok) throw new Error("Search failed");
     return res.json();
   },

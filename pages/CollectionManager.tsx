@@ -262,16 +262,16 @@ const CollectionManager = () => {
             <div className="space-y-6">
               
               {/* Face Filters (Instagram Story Style) */}
-              <div className="bg-[#111] p-4 rounded-2xl border border-white/5 overflow-x-auto pb-4 scrollbar-hide">
-                <div className="flex gap-4 min-w-max px-2">
+              <div className="bg-[#111] p-6 rounded-2xl border border-white/5 overflow-x-auto pb-4 scrollbar-hide">
+                <div className="flex gap-6 min-w-max px-2">
                     <div 
                         onClick={() => setFilterFaceId(null)}
                         className={`group flex flex-col items-center cursor-pointer transition-transform hover:scale-105 ${!filterFaceId ? 'opacity-100' : 'opacity-60'}`}
                     >
-                        <div className="w-16 h-16 rounded-full border-2 border-brand/50 bg-gradient-to-br from-gray-800 to-black flex items-center justify-center shadow-lg">
-                            <span className="text-xl">♾️</span>
+                        <div className="w-20 h-20 rounded-full border-2 border-brand/50 bg-gradient-to-br from-gray-800 to-black flex items-center justify-center shadow-lg mb-2">
+                            <span className="text-2xl">♾️</span>
                         </div>
-                        <span className="text-xs mt-2 font-medium text-brand">All Photos</span>
+                        <span className="text-xs font-medium text-brand">All Photos</span>
                     </div>
 
                     {faces.map(face => (
@@ -280,36 +280,42 @@ const CollectionManager = () => {
                         onClick={() => setFilterFaceId(face.FaceId)}
                         className={`relative group flex flex-col items-center cursor-pointer transition-transform hover:scale-105 ${filterFaceId === face.FaceId ? 'opacity-100' : 'opacity-70 hover:opacity-100'}`}
                     >
-                        <div className={`relative w-16 h-16 rounded-full p-0.5 ${filterFaceId === face.FaceId ? 'bg-gradient-to-tr from-brand to-blue-500' : 'bg-gray-700'}`}>
-                            <img 
-                                src={face.thumbnail || face.sampleUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${face.FaceId}`} 
-                                className="w-full h-full rounded-full object-cover border-2 border-black" 
-                                alt="Face" 
-                            />
+                        <div className={`relative w-20 h-20 rounded-full p-[3px] mb-2 ${filterFaceId === face.FaceId ? 'bg-gradient-to-tr from-brand to-blue-500 animate-spin-slow' : 'bg-gray-700'}`}>
+                            <div className="w-full h-full rounded-full overflow-hidden border-2 border-black">
+                                <img 
+                                    src={face.thumbnail || face.sampleUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${face.FaceId}`} 
+                                    className="w-full h-full object-cover" 
+                                    alt="Face" 
+                                />
+                            </div>
                         </div>
+                        
                         {/* Edit Name Button */}
                         <button 
                             onClick={(e) => handleNameFace(e, face.FaceId, face.FaceName)}
-                            className="absolute -top-1 -right-1 bg-gray-800 text-white p-1 rounded-full text-[10px] border border-gray-600 hover:bg-brand hover:text-black transition"
+                            className="absolute top-0 right-0 bg-gray-800 text-white p-1.5 rounded-full text-[10px] border border-gray-600 hover:bg-brand hover:text-black transition shadow-md z-10"
                             title="Name this person"
                         >
                             ✏️
                         </button>
-                        <span className="text-xs mt-2 font-medium text-gray-300 truncate w-20 text-center">
-                            {face.FaceName || 'Name Me'}
-                        </span>
-                        <span className="text-[10px] text-gray-600">{face.photoCount} photos</span>
+                        
+                        <div className="text-center">
+                            <span className="text-xs font-bold text-gray-200 truncate w-24 block mb-0.5">
+                                {face.FaceName || 'Name Me'}
+                            </span>
+                            <span className="text-[10px] text-gray-500 bg-white/5 px-2 py-0.5 rounded-full">{face.photoCount}</span>
+                        </div>
                     </div>
                     ))}
                 </div>
               </div>
 
               {/* Toolbar */}
-              <div className="flex flex-wrap justify-between items-center gap-4 bg-[#111] p-3 rounded-xl border border-white/5">
+              <div className="flex flex-wrap justify-between items-center gap-4 bg-[#111] p-3 rounded-xl border border-white/5 sticky top-4 z-10 shadow-xl backdrop-blur-md bg-opacity-90">
                 <div className="flex items-center gap-4">
                     <div className="relative">
                         <select 
-                            className="appearance-none bg-[#1a1a1a] border border-white/10 rounded-lg pl-4 pr-10 py-2 text-sm focus:border-brand outline-none"
+                            className="appearance-none bg-[#1a1a1a] border border-white/10 rounded-lg pl-4 pr-10 py-2 text-sm focus:border-brand outline-none text-white transition hover:border-white/30"
                             value={filterEventId}
                             onChange={(e) => setFilterEventId(e.target.value)}
                         >
@@ -321,7 +327,7 @@ const CollectionManager = () => {
                     <span className="text-sm text-gray-400 font-mono">{displayedPhotos.length} <span className="text-gray-600">photos</span></span>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={selectAllPhotos} className="px-4 py-2 bg-[#222] hover:bg-[#333] rounded-lg text-sm font-medium transition">
+                    <button onClick={selectAllPhotos} className="px-4 py-2 bg-[#222] hover:bg-[#333] rounded-lg text-sm font-medium transition border border-white/5">
                         {selectedPhotos.size === displayedPhotos.length ? 'Deselect All' : 'Select All'}
                     </button>
                     {selectedPhotos.size > 0 && (
@@ -338,23 +344,23 @@ const CollectionManager = () => {
                   <div 
                     key={photo.photo_id} 
                     onClick={() => togglePhotoSelection(photo.photo_id)}
-                    className={`aspect-square relative group bg-[#111] rounded-xl overflow-hidden cursor-pointer transition-all duration-200 ${selectedPhotos.has(photo.photo_id) ? 'ring-2 ring-brand ring-offset-2 ring-offset-black scale-95' : 'hover:ring-1 hover:ring-white/30'}`}
+                    className={`aspect-square relative group bg-[#111] rounded-xl overflow-hidden cursor-pointer transition-all duration-300 ${selectedPhotos.has(photo.photo_id) ? 'ring-2 ring-brand ring-offset-2 ring-offset-black scale-95' : 'hover:ring-1 hover:ring-white/30 hover:scale-[1.02] hover:shadow-xl'}`}
                   >
                     <img src={photo.thumbnail_url} loading="lazy" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt="img" />
                     
-                    <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center transition-all ${selectedPhotos.has(photo.photo_id) ? 'bg-brand text-black scale-100' : 'bg-black/40 border border-white/30 scale-0 group-hover:scale-100'}`}>
+                    <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center transition-all duration-300 ${selectedPhotos.has(photo.photo_id) ? 'bg-brand text-black scale-100 shadow-lg' : 'bg-black/40 border border-white/30 scale-0 group-hover:scale-100'}`}>
                         {selectedPhotos.has(photo.photo_id) && <span className="font-bold text-xs">✓</span>}
                     </div>
 
                     <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                        <a href={photo.url} download onClick={(e) => e.stopPropagation()} className="block w-full text-center bg-white/10 hover:bg-white/20 backdrop-blur-md py-1 rounded text-xs font-medium">Download</a>
+                        <a href={photo.url} download onClick={(e) => e.stopPropagation()} className="block w-full text-center bg-white/10 hover:bg-white/20 backdrop-blur-md py-1 rounded text-xs font-medium text-white transition">Download</a>
                     </div>
                   </div>
                 ))}
               </div>
               {displayedPhotos.length === 0 && (
-                  <div className="flex flex-col items-center justify-center py-20 text-gray-500">
-                      <div className="text-4xl mb-4">📷</div>
+                  <div className="flex flex-col items-center justify-center py-20 text-gray-500 opacity-50">
+                      <div className="text-4xl mb-4 grayscale">📷</div>
                       <p>No photos match your filters.</p>
                   </div>
               )}
@@ -528,13 +534,19 @@ const CollectionManager = () => {
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {leads.map((lead, i) => {
-                        // FIX: Ensure Base64 image displays correctly even if prefix is missing
-                        const imgSrc = lead.selfie_b64 
-                            ? (lead.selfie_b64.startsWith('data:') ? lead.selfie_b64 : `data:image/jpeg;base64,${lead.selfie_b64}`) 
-                            : 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + lead.name;
+                        // FIX: Ensure Base64 image displays correctly. 
+                        // If lead.selfie_b64 is raw base64 without prefix, add it.
+                        let imgSrc = 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + lead.name;
+                        if (lead.selfie_b64) {
+                            if (lead.selfie_b64.startsWith('data:')) {
+                                imgSrc = lead.selfie_b64;
+                            } else {
+                                imgSrc = `data:image/jpeg;base64,${lead.selfie_b64}`;
+                            }
+                        }
 
                         return (
-                        <div key={i} className="bg-[#1a1a1a] p-4 rounded-xl border border-white/5 flex items-start gap-4 hover:border-brand/30 transition group">
+                        <div key={i} className="bg-[#1a1a1a] p-4 rounded-xl border border-white/5 flex items-start gap-4 hover:border-brand/30 transition group shadow-lg">
                             <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-brand/50 flex-shrink-0 bg-black">
                                 <img src={imgSrc} className="w-full h-full object-cover" alt="Guest" />
                             </div>
