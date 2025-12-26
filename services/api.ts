@@ -106,22 +106,15 @@ export const Api = {
         body: JSON.stringify({ collection_id })
       });
       const data = await res.json();
-      
-      // Handle HTML logic: people || items || faces
       return { people: data.people || data.items || data.faces || [] };
     } catch (e) {
-      // Fallback API endpoint from HTML
-      const res = await fetch(`${API_BASE}/list-people`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify({ collection_id })
-      });
-      const data = await res.json();
-      return { people: data.people || data.items || data.faces || [] };
+      console.warn("listPeople API failed", e);
+      return { people: [] };
     }
   },
 
   saveFaceName: async (collection_id: string, face_id: string, name: string) => {
+    // Ensuring keys match the updated Python Lambda exactly (face_id, collection_id, name)
     const res = await fetch(`${API_BASE}/save-face-name`, {
       method: 'POST',
       headers: getHeaders(),
@@ -143,26 +136,33 @@ export const Api = {
   },
 
   getLeads: async (collection_id: string): Promise<Lead[]> => {
-    const res = await fetch(`${API_BASE}/save-details`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ collection_id, action: 'list' })
-    });
-    
-    if (!res.ok) throw new Error("Failed to fetch leads");
-    const data = await res.json();
-    
-    // Robust parsing like HTML version
-    if (Array.isArray(data)) return data;
-    if (data.leads) return data.leads;
-    if (data.items) return data.items;
-    if (data.data && Array.isArray(data.data)) return data.data;
-    if (data.history) return data.history;
-    
-    return [];
+    try {
+      const res = await fetch(`${API_BASE}/save-details`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ collection_id, action: 'list' })
+      });
+      
+      // Handle non-200 responses gracefully
+      if (!res.ok) {
+          console.warn("getLeads non-200 response:", res.status);
+          return [];
+      }
+      
+      const data = await res.json();
+      
+      // Robust parsing
+      if (Array.isArray(data)) return data;
+      if (data.leads) return data.leads;
+      if (data.items) return data.items;
+      return [];
+    } catch (e) {
+      console.error("getLeads error:", e);
+      return []; // Return empty array instead of throwing to prevent UI crash
+    }
   },
 
-  // --- Guest Side (No Auth Header usually, or minimal) ---
+  // --- Guest Side ---
   findMatches: async (linkId: string, selfieImage: string, pin?: string) => {
     const res = await fetch(`${API_BASE}/search`, {
       method: 'POST',
