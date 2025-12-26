@@ -87,7 +87,7 @@ export const Api = {
     return res.json();
   },
 
-  generateUploadUrls: async (collection_id: string, event_id: string, files: { name: string, type: string }[]) => {
+  generateUploadUrls: async (collection_id: string, event_id: string, files: { name: string, type: string, size?: number }[]) => {
     const res = await fetch(`${API_BASE}/generate-upload-urls`, {
       method: 'POST',
       headers: getHeaders(),
@@ -171,6 +171,17 @@ export const Api = {
       body: JSON.stringify({ email })
     });
     if (!res.ok) throw new Error("Failed to create photographer");
+    return res.json();
+  },
+
+  // NEW: Update Photographer (Edit Limits/Status)
+  adminUpdatePhotographer: async (user_id: string, data: { storage_limit_bytes?: number, expiry_date?: string, account_status?: string }) => {
+    const res = await fetch(`${API_BASE}/master/photographer/${user_id}`, {
+      method: 'PUT', // Assuming PUT for update, adjust if backend uses POST
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error("Failed to update photographer");
     return res.json();
   },
 

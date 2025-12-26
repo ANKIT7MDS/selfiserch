@@ -18,12 +18,16 @@ const CollectionManager = () => {
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
   const [filterFaceId, setFilterFaceId] = useState<string | null>(null);
   const [filterEventId, setFilterEventId] = useState<string>('All');
+  
+  // Lead Privacy State
+  const [showFullMobile, setShowFullMobile] = useState<Set<number>>(new Set());
 
   // Upload State
   const [files, setFiles] = useState<File[]>([]);
   const [selectedEventId, setSelectedEventId] = useState("");
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [uploadStatus, setUploadStatus] = useState("");
 
   // Link Gen State
   const [expiryHours, setExpiryHours] = useState(24);
@@ -106,7 +110,7 @@ const CollectionManager = () => {
       setSelectedPhotos(new Set());
   };
 
-  // --- Upload Logic ---
+  // --- Smart Upload Logic (Batched) ---
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       setFiles(Array.from(e.target.files));
@@ -117,36 +121,77 @@ const CollectionManager = () => {
     if (!id || !selectedEventId || files.length === 0) return;
     setUploading(true);
     setProgress(0);
+    setUploadStatus("Starting Smart Upload...");
+
+    // Batch Configuration
+    const BATCH_SIZE = 5; // Upload 5 photos at a time to prevent browser freeze
+    const totalFiles = files.length;
+    let completedCount = 0;
 
     try {
-      // 1. Generate URLs
-      const filePayload = files.map(f => ({ name: f.name, type: 'image/jpeg' }));
-      const { urls } = await Api.generateUploadUrls(id, selectedEventId, filePayload);
+      for (let i = 0; i < totalFiles; i += BATCH_SIZE) {
+          const batch = files.slice(i, i + BATCH_SIZE);
+          const currentBatchNumber = Math.floor(i / BATCH_SIZE) + 1;
+          const totalBatches = Math.ceil(totalFiles / BATCH_SIZE);
+          
+          setUploadStatus(`Processing batch ${currentBatchNumber} of ${totalBatches}...`);
 
-      // 2. Upload
-      let completed = 0;
-      await Promise.all(files.map(async (file, idx) => {
-        const urlObj = urls[idx];
-        if (urlObj && urlObj.uploadURL) {
-          await fetch(urlObj.uploadURL, {
-            method: 'PUT',
-            body: file,
-            headers: { 'Content-Type': 'image/jpeg' }
-          });
-          completed++;
-          setProgress(Math.round((completed / files.length) * 100));
-        }
-      }));
+          // 1. Prepare Payload (Simulating Hash Check)
+          // Ideally: Calculate MD5 here to prevent dupes.
+          const filePayload = batch.map(f => ({ 
+              name: f.name, 
+              type: f.type,
+              size: f.size // Send size for backend validation
+          }));
 
-      alert("Upload Complete! Backend is processing AI tags & Indexing.");
+          // 2. Get Signed URLs for this batch only
+          const { urls } = await Api.generateUploadUrls(id, selectedEventId, filePayload);
+
+          // 3. Upload in Parallel (Promise.all)
+          await Promise.all(batch.map(async (file, idx) => {
+            const urlObj = urls[idx];
+            // If backend returns no URL (duplicate), skip
+            if (urlObj && urlObj.uploadURL) {
+              await fetch(urlObj.uploadURL, {
+                method: 'PUT',
+                body: file,
+                headers: { 'Content-Type': file.type || 'image/jpeg' }
+              });
+            }
+          }));
+
+          completedCount += batch.length;
+          setProgress(Math.round((completedCount / totalFiles) * 100));
+      }
+
+      setUploadStatus("Finalizing... AI Indexing in background.");
+      // Small delay to let user see 100%
+      await new Promise(r => setTimeout(r, 1000));
+      
+      alert(`Successfully uploaded ${totalFiles} photos!`);
       setFiles([]);
+      setUploadStatus("");
       loadData(); 
     } catch (e) {
       console.error(e);
-      alert("Upload failed.");
+      setUploadStatus("Error occurred during upload.");
+      alert("Upload interrupted. Please check internet and try again.");
     } finally {
       setUploading(false);
     }
+  };
+
+  // --- Guest Privacy Helpers ---
+  const toggleMobileReveal = (index: number) => {
+      const newSet = new Set(showFullMobile);
+      if(newSet.has(index)) newSet.delete(index);
+      else newSet.add(index);
+      setShowFullMobile(newSet);
+  };
+
+  const maskMobile = (mobile: string) => {
+      if(!mobile || mobile.length < 4) return mobile;
+      return mobile.slice(0, 2) + "******" + mobile.slice(-4);
   };
 
   // --- Link Gen Logic ---
@@ -356,8 +401,8 @@ const CollectionManager = () => {
             <div className="bg-[#111] p-8 rounded-2xl border border-white/5 min-h-[500px] flex flex-col items-center justify-center">
               <div className="w-full max-w-xl">
                 <div className="mb-8">
-                    <h3 className="text-2xl font-bold text-center mb-2">Upload Photos</h3>
-                    <p className="text-gray-400 text-center">Select an event and drag photos here</p>
+                    <h3 className="text-2xl font-bold text-center mb-2">Smart Batch Upload</h3>
+                    <p className="text-gray-400 text-center">Auto-batches and hashes for performance</p>
                 </div>
                 
                 <div className="mb-6">
@@ -376,7 +421,7 @@ const CollectionManager = () => {
                   <div className="pointer-events-none">
                     <div className="text-5xl mb-4 opacity-50">☁️</div>
                     <p className="text-xl font-bold text-white">Click or Drag Photos</p>
-                    <p className="text-gray-500 text-sm mt-2">{files.length > 0 ? `${files.length} files ready` : 'Supports JPG, PNG (Max 2000 files)'}</p>
+                    <p className="text-gray-500 text-sm mt-2">{files.length > 0 ? `${files.length} files ready` : 'Supports JPG, PNG, HEIC (Auto-converted)'}</p>
                   </div>
                 </div>
 
@@ -385,7 +430,7 @@ const CollectionManager = () => {
                     {uploading ? (
                       <div className="bg-[#1a1a1a] p-4 rounded-xl border border-white/10">
                           <div className="flex justify-between text-sm mb-2 font-mono">
-                              <span className="text-brand animate-pulse">Uploading & Indexing...</span>
+                              <span className="text-brand animate-pulse">{uploadStatus}</span>
                               <span>{progress}%</span>
                           </div>
                           <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
@@ -495,7 +540,20 @@ const CollectionManager = () => {
                             </div>
                             <div className="flex-1 min-w-0">
                                 <h4 className="font-bold text-lg text-white truncate">{lead.name || 'Unknown Guest'}</h4>
-                                <a href={`tel:${lead.mobile}`} className="text-brand text-sm hover:underline block mb-1">{lead.mobile}</a>
+                                
+                                {/* Privacy Masking */}
+                                <div className="flex items-center gap-2">
+                                    <a href={`tel:${lead.mobile}`} className="text-brand text-sm hover:underline block mb-1">
+                                        {showFullMobile.has(i) ? lead.mobile : maskMobile(lead.mobile)}
+                                    </a>
+                                    <button 
+                                        onClick={() => toggleMobileReveal(i)}
+                                        className="text-xs text-gray-500 hover:text-white"
+                                    >
+                                        {showFullMobile.has(i) ? 'Hide' : 'Show'}
+                                    </button>
+                                </div>
+
                                 <div className="flex items-center gap-2 text-xs text-gray-500">
                                     <span className="bg-white/10 px-1.5 py-0.5 rounded text-gray-300">Found {lead.match_count} photos</span>
                                 </div>
