@@ -60,6 +60,17 @@ body {
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
 
+/* Masonry Grid */
+.my-masonry-grid {
+  display: flex;
+  margin-left: -16px; /* gutter size offset */
+  width: auto;
+}
+.my-masonry-grid_column {
+  padding-left: 16px; /* gutter size */
+  background-clip: padding-box;
+}
+
 /* Dynamic Brand Utilities */
 .text-brand { color: var(--brand-color); }
 .bg-brand { background-color: var(--brand-color); }

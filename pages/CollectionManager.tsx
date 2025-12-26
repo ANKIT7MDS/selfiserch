@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Api } from '../services/api';
 import { EventData, Photo, FaceGroup, Lead, Collection } from '../types';
+import Masonry from 'react-masonry-css';
 
 const getFaceStyle = (url: string, bbox: any) => {
     if (!url) return {};
@@ -417,6 +418,16 @@ const CollectionManager = () => {
       return formatBytes(size);
   }
 
+  // Masonry Breakpoints
+  const breakpointColumnsObj = {
+    default: 6,
+    1536: 5, // 2xl
+    1280: 4, // xl
+    1024: 3, // lg
+    768: 2,  // md
+    500: 2   // sm
+  };
+
   return (
     <div className="min-h-screen bg-black text-white font-sans selection:bg-brand selection:text-black">
       
@@ -533,20 +544,53 @@ const CollectionManager = () => {
                 </div>
                 )}
 
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2">
-                    {displayedPhotos.map(photo => {
-                        const isSelected = activeTab === 'selection' ? clientSelections.has(photo.photo_id) : selectedPhotos.has(photo.photo_id);
-                        return (
-                        <div key={photo.photo_id} onClick={() => togglePhotoSelection(photo.photo_id)} className={`aspect-square relative group bg-gray-900 rounded-lg overflow-hidden cursor-pointer ${isSelected ? (activeTab === 'selection' ? 'ring-2 ring-red-500' : 'ring-2 ring-brand') : ''}`}>
-                            <img src={photo.thumbnail_url} loading="lazy" className="w-full h-full object-cover transition duration-500 group-hover:scale-110" alt="img" />
-                            {isSelected && (
-                                <div className={`absolute top-1 right-1 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${activeTab === 'selection' ? 'bg-red-500 text-white' : 'bg-brand text-black'}`}>
-                                    {activeTab === 'selection' ? '❤' : '✓'}
-                                </div>
-                            )}
-                        </div>
-                    )})}
-                </div>
+                {activeTab === 'gallery' ? (
+                     <Masonry
+                        breakpointCols={breakpointColumnsObj}
+                        className="my-masonry-grid"
+                        columnClassName="my-masonry-grid_column"
+                     >
+                        {displayedPhotos.map(photo => {
+                             const isSelected = selectedPhotos.has(photo.photo_id);
+                             return (
+                                 <div 
+                                    key={photo.photo_id} 
+                                    onClick={() => togglePhotoSelection(photo.photo_id)} 
+                                    className={`mb-4 relative group rounded-xl overflow-hidden bg-gray-900 cursor-pointer transition-all duration-300 ${isSelected ? 'ring-2 ring-brand' : ''}`}
+                                 >
+                                    <img 
+                                        src={photo.thumbnail_url || photo.url} 
+                                        loading="lazy" 
+                                        className="w-full h-auto object-cover transition-transform duration-500 group-hover:scale-110" 
+                                        alt="gallery-img" 
+                                    />
+                                    {/* Hover Overlay & Selection Checkbox */}
+                                    <div className={`absolute inset-0 bg-black/20 transition-opacity duration-300 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                                         <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shadow-lg transition-transform duration-200 ${isSelected ? 'bg-brand text-black scale-100' : 'bg-black/50 text-white border border-white/30 hover:scale-110'}`}>
+                                            {isSelected ? '✓' : ''}
+                                         </div>
+                                    </div>
+                                 </div>
+                             );
+                        })}
+                     </Masonry>
+                ) : (
+                    // Fallback Grid for Selection Tab (or standard grid if preferred there)
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2">
+                        {displayedPhotos.map(photo => {
+                            const isSelected = activeTab === 'selection' ? clientSelections.has(photo.photo_id) : selectedPhotos.has(photo.photo_id);
+                            return (
+                            <div key={photo.photo_id} onClick={() => togglePhotoSelection(photo.photo_id)} className={`aspect-square relative group bg-gray-900 rounded-lg overflow-hidden cursor-pointer ${isSelected ? (activeTab === 'selection' ? 'ring-2 ring-red-500' : 'ring-2 ring-brand') : ''}`}>
+                                <img src={photo.thumbnail_url} loading="lazy" className="w-full h-full object-cover transition duration-500 group-hover:scale-110" alt="img" />
+                                {isSelected && (
+                                    <div className={`absolute top-1 right-1 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${activeTab === 'selection' ? 'bg-red-500 text-white' : 'bg-brand text-black'}`}>
+                                        {activeTab === 'selection' ? '❤' : '✓'}
+                                    </div>
+                                )}
+                            </div>
+                        )})}
+                    </div>
+                )}
             </div>
         )}
 
