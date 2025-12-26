@@ -106,17 +106,28 @@ const CollectionManager = () => {
       const loadedPhotos = photoData.photos || [];
       setPhotos(loadedPhotos);
       
-      // Face Handling: Try API -> Fallback to Client Build
+      // ✅ FIX: Face Logic Merge
+      // 1. Photos से raw faces बनाओ
+      const calculatedFaces = buildFacesFromPhotos(loadedPhotos);
+      
       try {
+        // 2. Backend से saved names लाओ
         const faceData = await Api.listPeople(id);
-        const apiFaces = faceData.people || [];
-        if (apiFaces.length > 0) {
-            setFaces(apiFaces);
-        } else {
-            setFaces(buildFacesFromPhotos(loadedPhotos));
-        }
+        const savedFaces = faceData.people || [];
+        
+        // 3. Merge Saved Names into Calculated Faces
+        const mergedFaces = calculatedFaces.map(cF => {
+            const match = savedFaces.find((sF: any) => sF.FaceId === cF.FaceId);
+            if (match && match.FaceName) {
+                return { ...cF, FaceName: match.FaceName };
+            }
+            return cF;
+        });
+        
+        setFaces(mergedFaces);
       } catch(e) { 
-          setFaces(buildFacesFromPhotos(loadedPhotos));
+          // अगर API फेल हो, तो सिर्फ calculated दिखाओ
+          setFaces(calculatedFaces);
       }
 
       // Leads
@@ -137,7 +148,7 @@ const CollectionManager = () => {
       const map = new Map<string, FaceGroup>();
       allPhotos.forEach(photo => {
           const sampleUrl = photo.thumbnail_url || photo.url;
-          // Check photo.faces (objects)
+          // Check photo.faces (objects with bbox)
           const faceObjs = photo.faces || [];
           faceObjs.forEach((f: any) => {
               const fid = f.FaceId || f.face_id;
@@ -150,12 +161,12 @@ const CollectionManager = () => {
                   if(!existing.BoundingBox && f.BoundingBox) existing.BoundingBox = f.BoundingBox;
               }
           });
-          // Check photo.face_ids (strings)
+          // Check photo.face_ids (just strings, fallback)
           const faceIds = photo.face_ids || [];
           faceIds.forEach(fid => {
               if(!fid) return;
               if(!map.has(fid)) {
-                  map.set(fid, { FaceId: fid, FaceName: "Unknown", photoCount: 1, sampleUrl, BoundingBox: null }); // Box might be missing here
+                  map.set(fid, { FaceId: fid, FaceName: "Unknown", photoCount: 1, sampleUrl, BoundingBox: null }); 
               } else {
                   map.get(fid)!.photoCount++;
               }
@@ -166,12 +177,16 @@ const CollectionManager = () => {
 
   const handleNameFace = async (e: React.MouseEvent, faceId: string, currentName: string | undefined) => {
     e.stopPropagation();
-    const newName = prompt("Enter Name for this person:", currentName || "");
+    const newName = prompt("Enter Name for this person:", currentName === "Unknown" ? "" : currentName);
     if (newName && id) {
         try {
-            await Api.saveFaceName(id, faceId, newName);
+            // Optimistic Update
             setFaces(prev => prev.map(f => f.FaceId === faceId ? { ...f, FaceName: newName } : f));
-        } catch (error) { alert("Failed to update name"); }
+            await Api.saveFaceName(id, faceId, newName);
+        } catch (error) { 
+            alert("Failed to update name");
+            loadData(); // Revert on fail
+        }
     }
   };
 
