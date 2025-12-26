@@ -3,12 +3,13 @@ import { useNavigate } from 'react-router-dom';
 
 const COGNITO_DOMAIN = "https://ap-south-1mva8s6f3w.auth.ap-south-1.amazoncognito.com";
 const CLIENT_ID = "6j3gec3kk0q0ktkals8cr8s367";
+// FIX: Hardcoding the production domain to ensure match with AWS Cognito settings
+// regardless of whether the app is run from localhost, Codespaces, or Prod.
+const SITE_URL = "https://selfiphotos.netlify.app";
 
 const Login = () => {
   const navigate = useNavigate();
 
-  // Note: Token parsing is now also handled in App.tsx for root redirects,
-  // but we keep it here in case the user is already on /login
   useEffect(() => {
     const hash = window.location.hash;
     if (hash && hash.includes('id_token')) {
@@ -45,11 +46,10 @@ const Login = () => {
   };
 
   const handleLogin = () => {
-    // FIX: Use only the origin (https://your-site.netlify.app) without /login
-    // This usually matches the default Allowed Callback URL in AWS Cognito
-    const redirectUri = window.location.origin; 
+    // IMPORTANT: AWS Cognito Callback URL must be exactly this: https://selfiphotos.netlify.app
+    // No trailing slash, no /login.
+    const redirectUri = SITE_URL;
     
-    // Construct Cognito URL
     const cognitoUrl = `${COGNITO_DOMAIN}/login?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}`;
     
     window.location.href = cognitoUrl; 
@@ -72,6 +72,8 @@ const Login = () => {
         
         <div className="mt-6 text-xs text-gray-600">
           Secure identity provided by Amazon Web Services
+          <br/>
+          <span className="text-gray-700">Redirects to: {SITE_URL}</span>
         </div>
       </div>
     </div>
