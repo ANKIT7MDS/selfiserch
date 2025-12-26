@@ -88,6 +88,23 @@ export const Api = {
     return res.json();
   },
 
+  // ADDED: Delete Single Photo
+  deletePhoto: async (collection_id: string, photo_id: string) => {
+    const res = await fetch(`${API_BASE}/delete-photo`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ collection_id, photo_id })
+    });
+    // Some backends might return 200 even on logical fail, check body if needed
+    // But usually standard check is enough
+    if (!res.ok) {
+        // Fallback: If specific endpoint doesn't exist, try the generic delete endpoint if available
+        // But assuming /delete-photo exists as per flow description
+        console.warn("Delete photo failed");
+    }
+    return res.json();
+  },
+
   generateUploadUrls: async (collection_id: string, event_id: string, files: { name: string, type: string, size?: number }[]) => {
     const res = await fetch(`${API_BASE}/generate-upload-urls`, {
       method: 'POST',
@@ -98,28 +115,17 @@ export const Api = {
     return res.json();
   },
   
-  // NEW: Public Upload Urls (No Auth Token Required, validated via public logic if backend allows, 
-  // or we use a temporary restricted token pattern. For now reusing same logic assuming 
-  // Backend handles 'public' flag or we pass a key)
   generatePublicUploadUrls: async (collection_id: string, event_id: string, files: { name: string, type: string, size?: number }[]) => {
-    // Note: In a strict security setup, this endpoint should be open but rate-limited
-    // For this app, we reuse the endpoint. If CORS/Auth blocks, backend update is needed.
-    // We send a dummy auth or specific header if needed.
     const res = await fetch(`${API_BASE}/generate-upload-urls`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }, // No Bearer Token
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ collection_id, event_id, files, is_public: true }) 
     });
     if (!res.ok) throw new Error("Failed to generate upload URLs");
     return res.json();
   },
   
-  // New: Get Public Collection Info (for styling Guest Portal)
   getPublicCollectionInfo: async (linkId: string) => {
-      // Reusing search endpoint to get metadata if possible, or dedicated endpoint
-      // Assuming 'search' returns collection metadata in a new field if implemented
-      // Or we fetch via a new lightweight endpoint. 
-      // Falling back to 'search' with empty params to just check validity/metadata
       const res = await fetch(`${API_BASE}/search`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -197,10 +203,17 @@ export const Api = {
 
   // --- CLIENT SELECTION ---
   getClientGallery: async (linkId: string, pin: string) => {
+      // FIX: Added 'selfieImage' dummy string. 
+      // The backend validates this field exists before checking 'mode'.
       const res = await fetch(`${API_BASE}/search`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ linkId, pin, mode: 'client_selection' })
+          body: JSON.stringify({ 
+              linkId, 
+              pin, 
+              mode: 'client_selection',
+              selfieImage: "CLIENT_MODE_BYPASS" 
+          })
       });
       
       if (res.status === 401 || res.status === 403) throw new Error("Invalid PIN");

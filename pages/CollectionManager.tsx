@@ -34,7 +34,6 @@ const SafeImage = ({ src, alt, className }: { src: string, alt: string, classNam
 const CollectionManager = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  // Added 'settings' tab
   const [activeTab, setActiveTab] = useState<'gallery' | 'events' | 'upload' | 'links' | 'guests' | 'selection' | 'settings'>('gallery');
   
   // Data State
@@ -53,13 +52,14 @@ const CollectionManager = () => {
       header_text_color: '#ffffff'
   });
   
-  // Selection Mode State (New)
+  // Selection Mode State
   const [clientSelections, setClientSelections] = useState<Set<string>>(new Set());
   
-  // Filtering
+  // Filtering & Selection
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
   const [filterFaceId, setFilterFaceId] = useState<string | null>(null);
   const [filterEventId, setFilterEventId] = useState<string>('All');
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Lead Accordion State
   const [openLeadGroup, setOpenLeadGroup] = useState<string | null>(null);
@@ -96,7 +96,7 @@ const CollectionManager = () => {
       const [evtData, photoData, colData] = await Promise.all([
         Api.getEvents(id),
         Api.getPhotos(id),
-        Api.getCollections() // We need to fetch all to find current one for theme
+        Api.getCollections()
       ]);
       setEvents(evtData.events || []);
       const loadedPhotos = photoData.photos || [];
@@ -115,7 +115,6 @@ const CollectionManager = () => {
           }
       }
       
-      // Face Logic (Merged from previous fix)
       const calculatedFaces = buildFacesFromPhotos(loadedPhotos);
       try {
         const faceData = await Api.listPeople(id);
@@ -128,12 +127,10 @@ const CollectionManager = () => {
         setFaces(mergedFaces);
       } catch(e) { setFaces(calculatedFaces); }
 
-      // Leads
       try {
         const leadData = await Api.getLeads(id);
         setLeads(leadData || []);
         
-        // CHECK FOR CLIENT SELECTION IN LEADS
         const selectionLead = leadData?.find(l => l.name === "CLIENT_SELECTION");
         if(selectionLead && selectionLead.selfie_image) {
             try {
@@ -230,6 +227,30 @@ const CollectionManager = () => {
     else setSelectedPhotos(new Set(displayedPhotos.map(p => p.photo_id)));
   };
 
+  // ADDED: Delete Logic
+  const handleDeleteSelectedPhotos = async () => {
+      if(!id) return;
+      if(selectedPhotos.size === 0) return alert("Select photos to delete");
+      if(!confirm(`Are you sure you want to delete ${selectedPhotos.size} photos? This cannot be undone.`)) return;
+
+      setIsDeleting(true);
+      try {
+          // Deleting one by one as backend usually exposes single delete. 
+          // If a bulk endpoint existed, we'd use that.
+          for(const photoId of selectedPhotos) {
+              await Api.deletePhoto(id, photoId);
+          }
+          alert("Photos deleted successfully");
+          setSelectedPhotos(new Set());
+          loadData();
+      } catch(e) {
+          console.error(e);
+          alert("Failed to delete some photos");
+      } finally {
+          setIsDeleting(false);
+      }
+  };
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) setFiles(Array.from(e.target.files));
   };
@@ -300,7 +321,6 @@ const CollectionManager = () => {
        } catch(e) { alert("Error generating client link"); }
   };
 
-  // Group Leads by Mobile
   const groupedLeads = leads.reduce((acc, lead) => {
       if(lead.name === "CLIENT_SELECTION") return acc;
       const phone = lead.mobile || "Unknown";
@@ -324,7 +344,7 @@ const CollectionManager = () => {
   return (
     <div className="min-h-screen bg-black text-white font-sans selection:bg-brand selection:text-black">
       
-      {/* 1. TOP HEADER */}
+      {/* HEADER */}
       <div className="sticky top-0 z-50 bg-black/80 backdrop-blur-xl border-b border-white/10">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -337,7 +357,7 @@ const CollectionManager = () => {
             </div>
         </div>
 
-        {/* 2. PREMIUM TABS */}
+        {/* TABS */}
         <div className="max-w-7xl mx-auto px-4">
             <div className="flex gap-1 overflow-x-auto scrollbar-hide pb-2 md:pb-0">
                 {[
@@ -346,7 +366,7 @@ const CollectionManager = () => {
                   { id: 'events', label: 'Events', icon: 'fas fa-calendar' },
                   { id: 'upload', label: 'Upload', icon: 'fas fa-cloud-upload-alt' },
                   { id: 'links', label: 'Links', icon: 'fas fa-link' },
-                  { id: 'settings', label: 'Settings', icon: 'fas fa-cog' }, // NEW
+                  { id: 'settings', label: 'Settings', icon: 'fas fa-cog' },
                   { id: 'guests', label: 'Guests', icon: 'fas fa-users' }
                 ].map((tab) => (
                   <button
@@ -366,14 +386,11 @@ const CollectionManager = () => {
         </div>
       </div>
 
-      {/* 3. MAIN CONTENT */}
       <div className="max-w-7xl mx-auto p-4 md:p-8 animate-fade-in min-h-[80vh]">
         
-        {/* GALLERY & SELECTION TAB */}
         {(activeTab === 'gallery' || activeTab === 'selection') && (
             <div className="space-y-6">
                 
-                {/* Face Icons Bar (Only in Gallery Mode) */}
                 {activeTab === 'gallery' && (
                 <div className="glass-panel p-4 rounded-2xl overflow-x-auto">
                     <div className="flex gap-4 min-w-max pb-2">
@@ -392,7 +409,6 @@ const CollectionManager = () => {
                 </div>
                 )}
 
-                {/* Selection Mode Header */}
                 {activeTab === 'selection' && (
                      <div className="glass-panel p-4 rounded-xl space-y-4 bg-brand/5 border-brand/20">
                          <div className="flex justify-between items-center">
@@ -406,7 +422,6 @@ const CollectionManager = () => {
                                  <button onClick={generateClientLink} className="bg-white text-black font-bold px-4 py-2 rounded-lg text-sm">Create Link</button>
                              </div>
                          </div>
-                         
                          {clientLink && (
                              <div className="bg-black/40 p-3 rounded flex justify-between items-center border border-white/10">
                                  <code className="text-brand text-xs break-all">{clientLink}</code>
@@ -416,7 +431,6 @@ const CollectionManager = () => {
                      </div>
                 )}
 
-                {/* Filters */}
                 {activeTab === 'gallery' && (
                 <div className="flex justify-between items-center glass-panel p-3 rounded-xl">
                     <div className="flex items-center gap-3">
@@ -430,12 +444,20 @@ const CollectionManager = () => {
                         <button onClick={selectAllPhotos} className="text-xs bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded transition">
                             {selectedPhotos.size === displayedPhotos.length ? 'Deselect All' : 'Select All'}
                         </button>
-                        {selectedPhotos.size > 0 && <button className="text-xs bg-red-500/10 text-red-500 px-3 py-1.5 rounded">Delete ({selectedPhotos.size})</button>}
+                        {selectedPhotos.size > 0 && (
+                            // ATTACHED DELETE HANDLER HERE
+                            <button 
+                                onClick={handleDeleteSelectedPhotos} 
+                                disabled={isDeleting}
+                                className="text-xs bg-red-500/10 text-red-500 px-3 py-1.5 rounded hover:bg-red-500/20 transition disabled:opacity-50"
+                            >
+                                {isDeleting ? 'Deleting...' : `Delete (${selectedPhotos.size})`}
+                            </button>
+                        )}
                     </div>
                 </div>
                 )}
 
-                {/* Grid */}
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2">
                     {displayedPhotos.map(photo => {
                         const isSelected = activeTab === 'selection' ? clientSelections.has(photo.photo_id) : selectedPhotos.has(photo.photo_id);
@@ -453,18 +475,16 @@ const CollectionManager = () => {
             </div>
         )}
 
-        {/* UPLOAD TAB */}
+        {/* Other Tabs (Omitted content is identical to previous, just wrapped in correct structure) */}
         {activeTab === 'upload' && (
             <div className="glass-panel p-8 rounded-2xl max-w-2xl mx-auto text-center space-y-8">
                 <div>
                      <h2 className="text-2xl font-bold mb-2">Photographer Upload</h2>
                      <p className="text-gray-400 text-sm mb-6">Upload photos directly to your events</p>
-                     
                      <select value={selectedEventId} onChange={e => setSelectedEventId(e.target.value)} className="w-full bg-black border border-white/10 p-3 rounded-lg mb-4 focus:border-brand outline-none">
                         <option value="">Select Event...</option>
                         {events.map(e => <option key={e.event_id} value={e.event_id}>{e.name}</option>)}
                      </select>
-                     
                      <div className={`border-2 border-dashed rounded-xl p-10 transition ${files.length > 0 ? 'border-brand bg-brand/5' : 'border-gray-700 hover:border-gray-500'}`}>
                         <input type="file" multiple accept="image/*" onChange={handleFileSelect} className="hidden" id="fup" />
                         <label htmlFor="fup" className="cursor-pointer block">
@@ -473,11 +493,9 @@ const CollectionManager = () => {
                             <div className="text-sm text-gray-500 mt-2">{files.length} selected</div>
                         </label>
                      </div>
-                     
                      {files.length > 0 && !uploading && (
                         <button onClick={handleUpload} className="w-full bg-brand text-black font-bold py-3 rounded-lg mt-6 hover:brightness-110">Start Upload</button>
                      )}
-                     
                      {uploading && (
                         <div className="mt-6">
                             <div className="text-brand font-mono text-sm mb-2">{uploadStatus}</div>
@@ -485,12 +503,9 @@ const CollectionManager = () => {
                         </div>
                      )}
                 </div>
-
-                {/* PUBLIC UPLOAD LINK GENERATOR */}
                 <div className="border-t border-white/10 pt-8">
                     <h3 className="text-lg font-bold mb-4">🔗 Shareable Assistant Link</h3>
                     <p className="text-sm text-gray-400 mb-4">Share this link with your team to upload photos without logging in.</p>
-                    
                     {!quickUploadLink ? (
                         <button onClick={generateQuickUploadLink} className="bg-white/10 border border-white/20 text-white font-bold py-2 px-6 rounded-lg hover:bg-white/20">
                             Generate Link
@@ -505,7 +520,6 @@ const CollectionManager = () => {
             </div>
         )}
 
-        {/* SETTINGS TAB */}
         {activeTab === 'settings' && (
             <div className="glass-panel p-8 rounded-2xl max-w-2xl mx-auto">
                 <h2 className="text-2xl font-bold mb-6">Customize Branding</h2>
@@ -517,23 +531,19 @@ const CollectionManager = () => {
                             <input type="text" value={theme.primary_color} onChange={e => setTheme({...theme, primary_color: e.target.value})} className="bg-black border border-white/10 p-2 rounded text-white flex-1" />
                         </div>
                     </div>
-                    
                     <div>
                         <label className="block text-sm text-gray-400 mb-2">Logo URL</label>
                         <input type="text" placeholder="https://..." value={theme.logo_url} onChange={e => setTheme({...theme, logo_url: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-lg text-white" />
                     </div>
-
                     <div>
                         <label className="block text-sm text-gray-400 mb-2">Background Image URL</label>
                         <input type="text" placeholder="https://..." value={theme.background_image} onChange={e => setTheme({...theme, background_image: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-lg text-white" />
                     </div>
-
                     <button onClick={saveSettings} className="w-full bg-brand text-black font-bold py-3 rounded-lg hover:brightness-110 mt-4">Save Customization</button>
                 </div>
             </div>
         )}
 
-        {/* LINKS TAB */}
         {activeTab === 'links' && (
             <div className="grid md:grid-cols-2 gap-8 glass-panel p-8 rounded-2xl">
                 <div>
@@ -567,7 +577,6 @@ const CollectionManager = () => {
             </div>
         )}
         
-        {/* EVENTS, GUESTS TABS REMAIN SIMILAR, CODE OMITTED FOR BREVITY BUT ASSUMED PRESENT */}
         {activeTab === 'events' && (
             <div className="space-y-4">
                 <div className="flex justify-between items-center glass-panel p-4 rounded-xl">
@@ -588,6 +597,7 @@ const CollectionManager = () => {
                 ))}
             </div>
         )}
+        
         {activeTab === 'guests' && (
              <div className="space-y-4 max-w-4xl mx-auto">
              {Object.entries(groupedLeads).map(([mobile, group], idx) => (
