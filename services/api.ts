@@ -99,14 +99,26 @@ export const Api = {
 
   // --- People & Faces ---
   listPeople: async (collection_id: string): Promise<{ people: FaceGroup[] }> => {
-    const res = await fetch(`${API_BASE}/list_people`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ collection_id })
-    });
-    const data = await res.json();
-    // ROBUST HANDLING: Backend might return 'people', 'faces', or 'Faces'
-    return { people: data.people || data.faces || data.Faces || [] };
+    try {
+      const res = await fetch(`${API_BASE}/list_people`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ collection_id })
+      });
+      const data = await res.json();
+      
+      // Handle HTML logic: people || items || faces
+      return { people: data.people || data.items || data.faces || [] };
+    } catch (e) {
+      // Fallback API endpoint from HTML
+      const res = await fetch(`${API_BASE}/list-people`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ collection_id })
+      });
+      const data = await res.json();
+      return { people: data.people || data.items || data.faces || [] };
+    }
   },
 
   saveFaceName: async (collection_id: string, face_id: string, name: string) => {
@@ -136,22 +148,26 @@ export const Api = {
       headers: getHeaders(),
       body: JSON.stringify({ collection_id, action: 'list' })
     });
+    
     if (!res.ok) throw new Error("Failed to fetch leads");
     const data = await res.json();
-    // Handle if backend returns wrapped object or direct array
+    
+    // Robust parsing like HTML version
     if (Array.isArray(data)) return data;
     if (data.leads) return data.leads;
-    if (data.Items) return data.Items;
+    if (data.items) return data.items;
+    if (data.data && Array.isArray(data.data)) return data.data;
+    if (data.history) return data.history;
+    
     return [];
   },
 
   // --- Guest Side (No Auth Header usually, or minimal) ---
-  // Updated to include PIN
   findMatches: async (linkId: string, selfieImage: string, pin?: string) => {
     const res = await fetch(`${API_BASE}/search`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ linkId, selfieImage, pin }) // Passing PIN here
+      body: JSON.stringify({ linkId, selfieImage, pin })
     });
     if (res.status === 401 || res.status === 403) {
         throw new Error("Invalid PIN");
@@ -185,10 +201,9 @@ export const Api = {
     return res.json();
   },
 
-  // NEW: Update Photographer (Edit Limits/Status)
   adminUpdatePhotographer: async (user_id: string, data: { storage_limit_bytes?: number, expiry_date?: string, account_status?: string }) => {
     const res = await fetch(`${API_BASE}/master/photographer/${user_id}`, {
-      method: 'PUT', // Assuming PUT for update, adjust if backend uses POST
+      method: 'PUT',
       headers: getHeaders(),
       body: JSON.stringify(data)
     });

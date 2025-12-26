@@ -49,6 +49,7 @@ export interface FaceGroup {
   photoCount: number;
   thumbnail?: string;
   sampleUrl?: string;
+  BoundingBox?: any;
 }
 
 export interface Lead {
@@ -57,6 +58,7 @@ export interface Lead {
   timestamp: string;
   match_count: number;
   selfie_b64?: string;
+  selfie_image?: string;
 }
 
 export interface AccountStatus {
