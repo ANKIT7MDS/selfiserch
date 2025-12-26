@@ -1,0 +1,7 @@
+{
+  "name": "EventLens Pro",
+  "description": "AI-Powered Event Photography Management & Guest Search Platform",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
