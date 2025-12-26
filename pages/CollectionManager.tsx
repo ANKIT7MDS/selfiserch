@@ -25,7 +25,8 @@ const getFaceStyle = (url: string, bbox: any) => {
 
 const SafeImage = ({ src, alt, className }: { src: string, alt: string, className?: string }) => {
     const [error, setError] = useState(false);
-    if (error || !src || src === 'undefined' || src === 'null' || src.length < 5) {
+    
+    if (error || !src || src === 'undefined' || src === 'null') {
         return (
             <div className={`${className} bg-gray-800 flex items-center justify-center border border-white/10`}>
                 <span className="text-[10px] text-gray-500">No Img</span>
@@ -61,7 +62,6 @@ const CollectionManager = () => {
   const [filterFaceId, setFilterFaceId] = useState<string | null>(null);
   const [filterEventId, setFilterEventId] = useState<string>('All');
   const [isDeleting, setIsDeleting] = useState(false);
-  const [openLeadGroup, setOpenLeadGroup] = useState<string | null>(null);
 
   // Upload State
   const [files, setFiles] = useState<File[]>([]);
@@ -111,7 +111,7 @@ const CollectionManager = () => {
           }
       }
       
-      // --- FACE LOGIC START ---
+      // Face Logic
       const calculatedFaces = buildFacesFromPhotos(loadedPhotos);
       try {
         const savedData = await Api.listPeople(id);
@@ -121,21 +121,19 @@ const CollectionManager = () => {
              if (p.FaceId) nameMap.set(p.FaceId, p.FaceName);
              if (p.face_id) nameMap.set(p.face_id, p.FaceName || p.name);
         });
-
-        // Merge: Prioritize saved names
         const mergedFaces = calculatedFaces.map(cF => {
             const savedName = nameMap.get(cF.FaceId);
             return { ...cF, FaceName: savedName || cF.FaceName || "Unknown" };
         });
         setFaces(mergedFaces);
       } catch(e) {
-          console.warn("Could not load saved faces", e);
           setFaces(calculatedFaces);
       }
-      // --- FACE LOGIC END ---
 
+      // Lead Logic
       try {
         const leadData = await Api.getLeads(id);
+        // Do not group leads, just filter client selection
         const regularLeads = leadData.filter(l => l.name !== "CLIENT_SELECTION");
         setLeads(regularLeads);
         
@@ -210,44 +208,30 @@ const CollectionManager = () => {
       }
   };
 
-  // --- NEW: Handle File Upload for Branding ---
   const handleThemeFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'logo_url' | 'background_image') => {
       const file = e.target.files?.[0];
       if (!file || !id) return;
-
-      // We need an event to "host" these files. Use the first one or create a dummy one if none exist.
       if (events.length === 0) {
           alert("Please create at least one Event in the Events tab to store theme files.");
           return;
       }
       const storageEventId = events[0].event_id;
-
       setUploading(true);
       try {
-          // 1. Generate URL
           const { urls } = await Api.generateUploadUrls(id, storageEventId, [{
               name: `theme_${field}_${Date.now()}.jpg`,
               type: file.type
           }]);
           const uploadInfo = urls[0];
-
-          // 2. Upload to S3
           await fetch(uploadInfo.uploadURL, {
               method: 'PUT',
               body: file,
               headers: { 'Content-Type': file.type }
           });
-
-          // 3. Extract Clean Public URL
-          // AWS Presigned URLs contain the full path. We remove query params.
           const cleanUrl = uploadInfo.uploadURL.split('?')[0];
-
-          // 4. Update State
           setTheme(prev => ({ ...prev, [field]: cleanUrl }));
           alert("Image uploaded successfully! Don't forget to click 'Save Customization'.");
-
       } catch (error) {
-          console.error(error);
           alert("Failed to upload image. Please try again.");
       } finally {
           setUploading(false);
@@ -371,14 +355,6 @@ const CollectionManager = () => {
             setClientLink(url);
        } catch(e) { alert("Error generating client link"); }
   };
-
-  const groupedLeads = leads.reduce((acc, lead) => {
-      if(lead.name === "CLIENT_SELECTION") return acc;
-      const phone = lead.mobile || "Unknown";
-      if (!acc[phone]) acc[phone] = { name: lead.name || "Guest", items: [] };
-      acc[phone].items.push(lead);
-      return acc;
-  }, {} as Record<string, { name: string, items: Lead[] }>);
 
   const getSelfieSrc = (item: Lead) => {
       let b64 = item.selfie_b64 || item.selfie_image;
@@ -565,36 +541,49 @@ const CollectionManager = () => {
             </div>
         )}
         
-        {/* GUESTS TAB */}
+        {/* GUESTS TAB - NEW FLATTENED LIST */}
         {activeTab === 'guests' && (
-             <div className="space-y-4 max-w-4xl mx-auto">
-             {Object.entries(groupedLeads).map(([mobile, group], idx) => (
-                 <div key={mobile} className="glass-panel rounded-xl overflow-hidden border border-white/5">
-                     <div onClick={() => setOpenLeadGroup(openLeadGroup === mobile ? null : mobile)} className="p-4 flex items-center justify-between cursor-pointer hover:bg-white/5 transition">
-                         <div className="flex items-center gap-4">
-                             <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-brand/50 bg-black">
-                                 <SafeImage src={getSelfieSrc(group.items[0])} alt="Selfie" className="w-full h-full object-cover" />
-                             </div>
-                             <div><h3 className="font-bold text-lg">{group.name}</h3><div className="text-brand font-mono text-sm">{mobile}</div></div>
+             <div className="space-y-4 max-w-5xl mx-auto">
+                 <div className="glass-panel p-6 rounded-2xl">
+                     <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                         <span>👥</span> Guest Activity Log
+                     </h2>
+                     {leads.length === 0 ? (
+                         <div className="text-center py-12 text-gray-500 bg-white/5 rounded-xl border border-dashed border-gray-700">
+                             No guest activity found yet.
                          </div>
-                         <div className="flex items-center gap-4"><span className="bg-white/10 px-3 py-1 rounded-full text-xs font-bold">{group.items.length} Sessions</span><span className={`transform transition ${openLeadGroup === mobile ? 'rotate-180' : ''}`}>▼</span></div>
-                     </div>
-                     {openLeadGroup === mobile && (
-                         <div className="bg-black/40 border-t border-white/10 p-4 space-y-3">
-                             {group.items.map((item, i) => (
-                                 <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5">
-                                     <div className="flex items-center gap-4">
-                                         <div className="w-10 h-10 rounded overflow-hidden bg-black border border-white/10"><SafeImage src={getSelfieSrc(item)} alt="Selfie" className="w-full h-full object-cover" /></div>
-                                         <div className="text-sm"><div className="text-gray-400">Time: <span className="text-white">{new Date(item.timestamp).toLocaleString()}</span></div><div className="text-green-400 font-bold">{item.match_count} Photos Found</div></div>
+                     ) : (
+                         <div className="grid gap-3">
+                             {leads.map((lead, idx) => (
+                                 <div key={idx} className="bg-black/40 border border-white/10 p-4 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                                     <div className="flex items-center gap-4 w-full md:w-auto">
+                                         <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-900 border border-white/10 shrink-0">
+                                             <SafeImage src={getSelfieSrc(lead)} alt="Selfie" className="w-full h-full object-cover" />
+                                         </div>
+                                         <div>
+                                             <div className="font-bold text-lg text-white">{lead.name || 'Anonymous Guest'}</div>
+                                             <div className="text-brand font-mono text-sm">{lead.mobile || 'No Mobile'}</div>
+                                             <div className="text-xs text-gray-500 mt-1">{new Date(lead.timestamp).toLocaleString()}</div>
+                                         </div>
                                      </div>
-                                     <button className="text-xs border border-white/20 px-3 py-1 rounded hover:bg-white/10" onClick={() => openSelfieWindow(getSelfieSrc(item))}>View Selfie</button>
+                                     
+                                     <div className="flex items-center justify-between w-full md:w-auto gap-6 bg-white/5 p-3 rounded-lg md:bg-transparent md:p-0">
+                                         <div className="text-center">
+                                             <div className="text-xs text-gray-400 uppercase tracking-wider">Matches</div>
+                                             <div className="font-bold text-xl">{lead.match_count}</div>
+                                         </div>
+                                         <button 
+                                            onClick={() => openSelfieWindow(getSelfieSrc(lead))}
+                                            className="px-4 py-2 text-sm border border-white/20 rounded-lg hover:bg-white/10 transition whitespace-nowrap"
+                                         >
+                                            View Selfie
+                                         </button>
+                                     </div>
                                  </div>
                              ))}
                          </div>
                      )}
                  </div>
-             ))}
-             {Object.keys(groupedLeads).length === 0 && <div className="text-center py-20 text-gray-500">No guest leads yet.</div>}
          </div>
         )}
 
@@ -652,17 +641,18 @@ const CollectionManager = () => {
             <div className="grid md:grid-cols-2 gap-8 glass-panel p-8 rounded-2xl">
                 <div>
                     <h3 className="font-bold mb-4 text-lg">Generate Search Link</h3>
-                    <div className="bg-black/50 border border-white/10 rounded-lg p-3 max-h-96 overflow-y-auto mb-4">
+                    {/* Fixed Height Issue Here */}
+                    <div className="bg-black/50 border border-white/10 rounded-lg p-3 min-h-[12rem] max-h-96 overflow-y-auto mb-4">
                         {events.length > 0 ? events.map(e => (
-                            <label key={e.event_id} className="flex items-center gap-2 p-2 hover:bg-white/5 rounded cursor-pointer">
+                            <label key={e.event_id} className="flex items-center gap-2 p-2 hover:bg-white/5 rounded cursor-pointer border-b border-white/5 last:border-0">
                                 <input type="checkbox" checked={selectedLinkEvents.includes(e.event_id)} onChange={ev => {
                                     if(ev.target.checked) setSelectedLinkEvents([...selectedLinkEvents, e.event_id]);
                                     else setSelectedLinkEvents(selectedLinkEvents.filter(x => x !== e.event_id));
-                                }} className="accent-brand" />
-                                <span className="text-sm">{e.name}</span>
+                                }} className="accent-brand w-4 h-4" />
+                                <span className="text-sm font-medium">{e.name}</span>
                             </label>
                         )) : (
-                            <div className="text-sm text-gray-500 p-2">No events created yet.</div>
+                            <div className="text-sm text-gray-500 p-4 text-center">No events created yet. Go to 'Events' tab to create one.</div>
                         )}
                     </div>
                     <div className="grid grid-cols-2 gap-3 mb-4">
@@ -671,14 +661,20 @@ const CollectionManager = () => {
                     </div>
                     <button onClick={handleGenerateLink} className="w-full bg-white text-black font-bold py-3 rounded-lg hover:bg-gray-200">Generate</button>
                 </div>
-                <div className="flex flex-col items-center justify-center border-l border-white/10 min-h-[200px]">
+                <div className="flex flex-col items-center justify-center border-l border-white/10 min-h-[200px] p-4">
                     {generatedLink ? (
-                        <div className="text-center w-full">
+                        <div className="text-center w-full animate-fade-in">
                             <div className="text-brand text-5xl mb-4">✓</div>
-                            <div className="bg-black p-3 rounded border border-brand/50 text-brand text-xs break-all font-mono mb-4">{generatedLink}</div>
-                            <button onClick={() => navigator.clipboard.writeText(generatedLink)} className="bg-brand text-black font-bold px-6 py-2 rounded-lg">Copy Link</button>
+                            <div className="text-lg font-bold mb-2">Link Ready</div>
+                            <div className="bg-black p-4 rounded border border-brand/50 text-brand text-xs break-all font-mono mb-4">{generatedLink}</div>
+                            <button onClick={() => navigator.clipboard.writeText(generatedLink)} className="bg-brand text-black font-bold px-6 py-2 rounded-lg shadow-lg">Copy Link</button>
                         </div>
-                    ) : <div className="text-gray-500">Select events to start</div>}
+                    ) : (
+                        <div className="text-center text-gray-500">
+                            <div className="text-4xl mb-2">🔗</div>
+                            <div>Select events & click Generate</div>
+                        </div>
+                    )}
                 </div>
             </div>
         )}

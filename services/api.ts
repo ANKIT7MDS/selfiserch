@@ -7,15 +7,18 @@ const getHeaders = (isPublic = false) => {
   const headers: any = {
     'Content-Type': 'application/json'
   };
-  const token = localStorage.getItem('idToken');
-  // Only add Authorization if NOT public and token exists
-  if (token && !isPublic) {
-    headers['Authorization'] = `Bearer ${token}`;
+  // IMPORTANT: For public endpoints, DO NOT send Authorization header at all.
+  // Sending 'Bearer null' or invalid token causes AWS API Gateway to return 403.
+  if (!isPublic) {
+      const token = localStorage.getItem('idToken');
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
   }
   return headers;
 };
 
-// 1x1 Pixel Transparent GIF Base64 to trick backend image validation
+// 1x1 Pixel Transparent GIF Base64 to trick backend image validation if needed
 const DUMMY_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg==";
 
 export const Api = {
@@ -55,6 +58,7 @@ export const Api = {
 
   // --- Events ---
   getEvents: async (collection_id: string, isPublic = false): Promise<{ events: EventData[] }> => {
+    // Explicitly passing isPublic to getHeaders
     const res = await fetch(`${API_BASE}/get-events`, {
       method: 'POST',
       headers: getHeaders(isPublic),
@@ -118,7 +122,7 @@ export const Api = {
   generatePublicUploadUrls: async (collection_id: string, event_id: string, files: { name: string, type: string, size?: number }[]) => {
     const res = await fetch(`${API_BASE}/generate-upload-urls`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }, 
+      headers: getHeaders(true), // TRUE = Public Header
       body: JSON.stringify({ collection_id, event_id, files, is_public: true }) 
     });
     if (!res.ok) throw new Error("Failed to generate upload URLs");
@@ -128,7 +132,7 @@ export const Api = {
   getPublicCollectionInfo: async (linkId: string) => {
       const res = await fetch(`${API_BASE}/search`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getHeaders(true), // TRUE = Public Header
           body: JSON.stringify({ linkId, metadata_only: true })
       });
       return res.json();
@@ -183,7 +187,10 @@ export const Api = {
       if (Array.isArray(data)) return data;
       if (Array.isArray(data.leads)) return data.leads;
       if (Array.isArray(data.items)) return data.items;
-      if (Array.isArray(data.body)) return JSON.parse(data.body); 
+      if (Array.isArray(data.body)) {
+          // Sometimes body is a stringified JSON
+          try { return JSON.parse(data.body); } catch(e) { return []; }
+      }
       return [];
     } catch (e) {
       console.warn("getLeads error", e);
@@ -191,11 +198,12 @@ export const Api = {
     }
   },
 
-  // --- Guest Side ---
+  // --- Guest Side (PUBLIC) ---
   findMatches: async (linkId: string, selfieImage: string, pin?: string) => {
+    // PUBLIC ENDPOINT
     const res = await fetch(`${API_BASE}/search`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(true), 
       body: JSON.stringify({ linkId, selfieImage, pin })
     });
     if (res.status === 401 || res.status === 403) throw new Error("Invalid PIN");
@@ -203,17 +211,17 @@ export const Api = {
     return res.json();
   },
 
-  // --- CLIENT SELECTION ---
+  // --- CLIENT SELECTION (PUBLIC) ---
   getClientGallery: async (linkId: string, pin: string) => {
-      // FIX: Use Real Base64 Image to pass backend validation
+      // PUBLIC ENDPOINT
       const res = await fetch(`${API_BASE}/search`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getHeaders(true),
           body: JSON.stringify({ 
               linkId, 
               pin, 
               mode: 'client_selection',
-              selfieImage: DUMMY_IMAGE 
+              selfieImage: DUMMY_IMAGE // Send dummy to bypass backend "missing image" check if exists
           })
       });
       
@@ -223,9 +231,10 @@ export const Api = {
   },
 
   saveClientSelection: async (linkId: string, selectedPhotoIds: string[]) => {
+      // PUBLIC ENDPOINT
       const res = await fetch(`${API_BASE}/save-details`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(true),
         body: JSON.stringify({
             linkId,
             name: "CLIENT_SELECTION",
@@ -238,9 +247,10 @@ export const Api = {
   },
 
   saveGuestDetails: async (payload: any) => {
+    // PUBLIC ENDPOINT
     const res = await fetch(`${API_BASE}/save-details`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(true),
       body: JSON.stringify(payload)
     });
     return res.json();
