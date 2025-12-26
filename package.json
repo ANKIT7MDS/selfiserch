@@ -14,11 +14,15 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.22.0",
-    "react-webcam": "^7.2.0"
+    "react-webcam": "^7.2.0",
+    "canvas-confetti": "^1.6.0",
+    "howler": "^2.2.3"
   },
   "devDependencies": {
     "@types/react": "^18.2.55",
     "@types/react-dom": "^18.2.19",
+    "@types/canvas-confetti": "^1.6.0",
+    "@types/howler": "^2.2.11",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.17",
     "postcss": "^8.4.35",
