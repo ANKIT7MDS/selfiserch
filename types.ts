@@ -13,6 +13,13 @@ export interface Collection {
   total_photo_count: number;
   total_leads_count?: number;
   storage_bytes: number;
+  // New Theme Properties
+  custom_theme?: {
+    primary_color?: string;
+    background_image?: string;
+    logo_url?: string;
+    header_text_color?: string;
+  };
 }
 
 export interface EventData {

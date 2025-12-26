@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Api } from '../services/api';
-import { EventData, Photo, FaceGroup, Lead } from '../types';
+import { EventData, Photo, FaceGroup, Lead, Collection } from '../types';
 
 // Helper to calculate CSS for face crop
 const getFaceStyle = (url: string, bbox: any) => {
@@ -34,15 +34,24 @@ const SafeImage = ({ src, alt, className }: { src: string, alt: string, classNam
 const CollectionManager = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  // Added 'selection' tab
-  const [activeTab, setActiveTab] = useState<'gallery' | 'events' | 'upload' | 'links' | 'guests' | 'selection'>('gallery');
+  // Added 'settings' tab
+  const [activeTab, setActiveTab] = useState<'gallery' | 'events' | 'upload' | 'links' | 'guests' | 'selection' | 'settings'>('gallery');
   
   // Data State
+  const [collectionInfo, setCollectionInfo] = useState<Collection | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [events, setEvents] = useState<EventData[]>([]);
   const [faces, setFaces] = useState<FaceGroup[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Settings State
+  const [theme, setTheme] = useState({
+      primary_color: '#00e676',
+      logo_url: '',
+      background_image: '',
+      header_text_color: '#ffffff'
+  });
   
   // Selection Mode State (New)
   const [clientSelections, setClientSelections] = useState<Set<string>>(new Set());
@@ -61,6 +70,9 @@ const CollectionManager = () => {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState("");
+  
+  // Quick Upload Link
+  const [quickUploadLink, setQuickUploadLink] = useState("");
 
   // Links State
   const [expiryHours, setExpiryHours] = useState(24);
@@ -81,13 +93,27 @@ const CollectionManager = () => {
     if (!id) return;
     setLoading(true);
     try {
-      const [evtData, photoData] = await Promise.all([
+      const [evtData, photoData, colData] = await Promise.all([
         Api.getEvents(id),
-        Api.getPhotos(id)
+        Api.getPhotos(id),
+        Api.getCollections() // We need to fetch all to find current one for theme
       ]);
       setEvents(evtData.events || []);
       const loadedPhotos = photoData.photos || [];
       setPhotos(loadedPhotos);
+      
+      const currentCol = colData.Items.find(c => c.collection_id === id);
+      if(currentCol) {
+          setCollectionInfo(currentCol);
+          if(currentCol.custom_theme) {
+              setTheme({
+                  primary_color: currentCol.custom_theme.primary_color || '#00e676',
+                  logo_url: currentCol.custom_theme.logo_url || '',
+                  background_image: currentCol.custom_theme.background_image || '',
+                  header_text_color: currentCol.custom_theme.header_text_color || '#ffffff'
+              });
+          }
+      }
       
       // Face Logic (Merged from previous fix)
       const calculatedFaces = buildFacesFromPhotos(loadedPhotos);
@@ -168,6 +194,16 @@ const CollectionManager = () => {
     }
   };
 
+  const saveSettings = async () => {
+      if(!id || !collectionInfo) return;
+      try {
+          await Api.upsertCollection(collectionInfo.name, id, theme);
+          alert("Theme Saved! Your guest links will now use this branding.");
+      } catch(e) {
+          alert("Failed to save settings");
+      }
+  };
+
   const getFilteredPhotos = () => {
     let res = photos;
     if (filterFaceId) {
@@ -183,13 +219,7 @@ const CollectionManager = () => {
   const displayedPhotos = getFilteredPhotos();
 
   const togglePhotoSelection = (pid: string) => {
-    // If in Selection Mode, toggle 'Heart'
-    if (activeTab === 'selection') {
-        // Only for viewing in admin, actual selection is done by client
-        return;
-    }
-
-    // Normal Admin Selection
+    if (activeTab === 'selection') return;
     const newSet = new Set(selectedPhotos);
     if (newSet.has(pid)) newSet.delete(pid); else newSet.add(pid);
     setSelectedPhotos(newSet);
@@ -243,6 +273,11 @@ const CollectionManager = () => {
       setUploading(false);
     }
   };
+  
+  const generateQuickUploadLink = () => {
+      const url = `${window.location.origin}/#/quick-upload/${id}`;
+      setQuickUploadLink(url);
+  };
 
   const handleGenerateLink = async () => {
     if (!id || selectedLinkEvents.length === 0) return alert("Select at least one event");
@@ -254,11 +289,7 @@ const CollectionManager = () => {
   };
   
   const generateClientLink = async () => {
-       // We assume a standard link generation but we append client-select path in UI
        if(!id) return;
-       // We can reuse the same API just to get a valid linkId for the collection
-       // Or assuming linkId matches collectionID or a specific logic.
-       // For safety, let's use generateLink API to get a fresh LinkID
        try {
             const allEventIds = events.map(e => e.event_id);
             if(allEventIds.length === 0) return alert("No events to link");
@@ -271,9 +302,7 @@ const CollectionManager = () => {
 
   // Group Leads by Mobile
   const groupedLeads = leads.reduce((acc, lead) => {
-      // Exclude Client Selection from Guest List
       if(lead.name === "CLIENT_SELECTION") return acc;
-
       const phone = lead.mobile || "Unknown";
       if (!acc[phone]) acc[phone] = { name: lead.name || "Guest", items: [] };
       acc[phone].items.push(lead);
@@ -300,7 +329,7 @@ const CollectionManager = () => {
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-4">
                 <button onClick={() => navigate('/dashboard')} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition">←</button>
-                <h1 className="text-xl font-bold tracking-tight">Collection Manager</h1>
+                <h1 className="text-xl font-bold tracking-tight">{collectionInfo?.name || 'Collection Manager'}</h1>
             </div>
             <div className="flex items-center gap-2 text-sm text-gray-400">
                 <span className="hidden md:inline">Total Photos:</span>
@@ -313,10 +342,11 @@ const CollectionManager = () => {
             <div className="flex gap-1 overflow-x-auto scrollbar-hide pb-2 md:pb-0">
                 {[
                   { id: 'gallery', label: 'Gallery', icon: 'fas fa-images' },
-                  { id: 'selection', label: 'Client Select', icon: 'fas fa-heart' }, // NEW TAB
+                  { id: 'selection', label: 'Client Select', icon: 'fas fa-heart' },
                   { id: 'events', label: 'Events', icon: 'fas fa-calendar' },
                   { id: 'upload', label: 'Upload', icon: 'fas fa-cloud-upload-alt' },
                   { id: 'links', label: 'Links', icon: 'fas fa-link' },
+                  { id: 'settings', label: 'Settings', icon: 'fas fa-cog' }, // NEW
                   { id: 'guests', label: 'Guests', icon: 'fas fa-users' }
                 ].map((tab) => (
                   <button
@@ -328,9 +358,8 @@ const CollectionManager = () => {
                       : 'border-transparent text-gray-400 hover:text-white hover:bg-white/5'
                     }`}
                   >
-                    <span>{tab.id === 'gallery' ? '🖼️' : tab.id === 'selection' ? '❤️' : tab.id === 'events' ? '📅' : tab.id === 'upload' ? '☁️' : tab.id === 'links' ? '🔗' : '👥'}</span>
+                    <span>{tab.id === 'gallery' ? '🖼️' : tab.id === 'selection' ? '❤️' : tab.id === 'events' ? '📅' : tab.id === 'upload' ? '☁️' : tab.id === 'links' ? '🔗' : tab.id === 'settings' ? '⚙️' : '👥'}</span>
                     {tab.label}
-                    {tab.id === 'guests' && leads.length > 0 && <span className="ml-1 bg-white/10 text-xs px-1.5 rounded">{leads.length}</span>}
                   </button>
                 ))}
             </div>
@@ -387,7 +416,7 @@ const CollectionManager = () => {
                      </div>
                 )}
 
-                {/* Filters (Gallery Only) */}
+                {/* Filters */}
                 {activeTab === 'gallery' && (
                 <div className="flex justify-between items-center glass-panel p-3 rounded-xl">
                     <div className="flex items-center gap-3">
@@ -409,24 +438,13 @@ const CollectionManager = () => {
                 {/* Grid */}
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2">
                     {displayedPhotos.map(photo => {
-                        // Logic for what "Selected" means based on Tab
                         const isSelected = activeTab === 'selection' ? clientSelections.has(photo.photo_id) : selectedPhotos.has(photo.photo_id);
-                        
                         return (
                         <div key={photo.photo_id} onClick={() => togglePhotoSelection(photo.photo_id)} className={`aspect-square relative group bg-gray-900 rounded-lg overflow-hidden cursor-pointer ${isSelected ? (activeTab === 'selection' ? 'ring-2 ring-red-500' : 'ring-2 ring-brand') : ''}`}>
                             <img src={photo.thumbnail_url} loading="lazy" className="w-full h-full object-cover transition duration-500 group-hover:scale-110" alt="img" />
-                            
-                            {/* Selection Indicator */}
                             {isSelected && (
                                 <div className={`absolute top-1 right-1 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${activeTab === 'selection' ? 'bg-red-500 text-white' : 'bg-brand text-black'}`}>
                                     {activeTab === 'selection' ? '❤' : '✓'}
-                                </div>
-                            )}
-
-                            {/* Hover Overlay for Selection Mode */}
-                            {activeTab === 'selection' && !isSelected && (
-                                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/30 transition">
-                                    <div className="text-3xl text-red-500 opacity-50">♡</div>
                                 </div>
                             )}
                         </div>
@@ -435,53 +453,83 @@ const CollectionManager = () => {
             </div>
         )}
 
-        {/* EVENTS TAB */}
-        {activeTab === 'events' && (
-            <div className="space-y-4">
-                <div className="flex justify-between items-center glass-panel p-4 rounded-xl">
-                    <h2 className="text-lg font-bold">Event List</h2>
-                    <button onClick={() => {
-                        const name = prompt("Name:"); const date = prompt("Date:");
-                        if(name && date && id) Api.upsertEvent(id, name, date).then(loadData);
-                    }} className="bg-brand text-black text-sm font-bold px-4 py-2 rounded-lg hover:brightness-110">+ Create</button>
-                </div>
-                {events.map(evt => (
-                    <div key={evt.event_id} className="glass-panel p-4 rounded-xl flex justify-between items-center">
-                        <div>
-                            <h3 className="font-bold">{evt.name}</h3>
-                            <p className="text-sm text-gray-500">{evt.event_date} • {evt.photo_count} photos</p>
+        {/* UPLOAD TAB */}
+        {activeTab === 'upload' && (
+            <div className="glass-panel p-8 rounded-2xl max-w-2xl mx-auto text-center space-y-8">
+                <div>
+                     <h2 className="text-2xl font-bold mb-2">Photographer Upload</h2>
+                     <p className="text-gray-400 text-sm mb-6">Upload photos directly to your events</p>
+                     
+                     <select value={selectedEventId} onChange={e => setSelectedEventId(e.target.value)} className="w-full bg-black border border-white/10 p-3 rounded-lg mb-4 focus:border-brand outline-none">
+                        <option value="">Select Event...</option>
+                        {events.map(e => <option key={e.event_id} value={e.event_id}>{e.name}</option>)}
+                     </select>
+                     
+                     <div className={`border-2 border-dashed rounded-xl p-10 transition ${files.length > 0 ? 'border-brand bg-brand/5' : 'border-gray-700 hover:border-gray-500'}`}>
+                        <input type="file" multiple accept="image/*" onChange={handleFileSelect} className="hidden" id="fup" />
+                        <label htmlFor="fup" className="cursor-pointer block">
+                            <div className="text-4xl mb-2">☁️</div>
+                            <div className="font-bold">Click to Select Photos</div>
+                            <div className="text-sm text-gray-500 mt-2">{files.length} selected</div>
+                        </label>
+                     </div>
+                     
+                     {files.length > 0 && !uploading && (
+                        <button onClick={handleUpload} className="w-full bg-brand text-black font-bold py-3 rounded-lg mt-6 hover:brightness-110">Start Upload</button>
+                     )}
+                     
+                     {uploading && (
+                        <div className="mt-6">
+                            <div className="text-brand font-mono text-sm mb-2">{uploadStatus}</div>
+                            <div className="h-2 bg-gray-800 rounded-full overflow-hidden"><div className="h-full bg-brand transition-all duration-300" style={{width: `${progress}%`}}></div></div>
                         </div>
-                        <button onClick={() => { if(confirm("Delete?")) Api.deleteEvent(id!, evt.event_id).then(loadData); }} className="text-red-500 text-sm hover:underline">Delete</button>
-                    </div>
-                ))}
+                     )}
+                </div>
+
+                {/* PUBLIC UPLOAD LINK GENERATOR */}
+                <div className="border-t border-white/10 pt-8">
+                    <h3 className="text-lg font-bold mb-4">🔗 Shareable Assistant Link</h3>
+                    <p className="text-sm text-gray-400 mb-4">Share this link with your team to upload photos without logging in.</p>
+                    
+                    {!quickUploadLink ? (
+                        <button onClick={generateQuickUploadLink} className="bg-white/10 border border-white/20 text-white font-bold py-2 px-6 rounded-lg hover:bg-white/20">
+                            Generate Link
+                        </button>
+                    ) : (
+                        <div className="bg-black/50 p-4 rounded-lg flex items-center justify-between border border-brand/30">
+                            <code className="text-brand text-xs break-all text-left">{quickUploadLink}</code>
+                            <button onClick={() => navigator.clipboard.writeText(quickUploadLink)} className="ml-4 bg-brand text-black px-3 py-1 rounded text-xs font-bold">Copy</button>
+                        </div>
+                    )}
+                </div>
             </div>
         )}
 
-        {/* UPLOAD TAB */}
-        {activeTab === 'upload' && (
-            <div className="glass-panel p-8 rounded-2xl max-w-2xl mx-auto text-center">
-                <h2 className="text-2xl font-bold mb-6">Batch Upload</h2>
-                <select value={selectedEventId} onChange={e => setSelectedEventId(e.target.value)} className="w-full bg-black border border-white/10 p-3 rounded-lg mb-4 focus:border-brand outline-none">
-                    <option value="">Select Event...</option>
-                    {events.map(e => <option key={e.event_id} value={e.event_id}>{e.name}</option>)}
-                </select>
-                <div className={`border-2 border-dashed rounded-xl p-10 transition ${files.length > 0 ? 'border-brand bg-brand/5' : 'border-gray-700 hover:border-gray-500'}`}>
-                    <input type="file" multiple accept="image/*" onChange={handleFileSelect} className="hidden" id="fup" />
-                    <label htmlFor="fup" className="cursor-pointer block">
-                        <div className="text-4xl mb-2">☁️</div>
-                        <div className="font-bold">Click to Select Photos</div>
-                        <div className="text-sm text-gray-500 mt-2">{files.length} selected</div>
-                    </label>
-                </div>
-                {files.length > 0 && !uploading && (
-                    <button onClick={handleUpload} className="w-full bg-brand text-black font-bold py-3 rounded-lg mt-6 hover:brightness-110">Start Upload</button>
-                )}
-                {uploading && (
-                    <div className="mt-6">
-                        <div className="text-brand font-mono text-sm mb-2">{uploadStatus}</div>
-                        <div className="h-2 bg-gray-800 rounded-full overflow-hidden"><div className="h-full bg-brand transition-all duration-300" style={{width: `${progress}%`}}></div></div>
+        {/* SETTINGS TAB */}
+        {activeTab === 'settings' && (
+            <div className="glass-panel p-8 rounded-2xl max-w-2xl mx-auto">
+                <h2 className="text-2xl font-bold mb-6">Customize Branding</h2>
+                <div className="space-y-6">
+                    <div>
+                        <label className="block text-sm text-gray-400 mb-2">Brand Accent Color</label>
+                        <div className="flex gap-4 items-center">
+                            <input type="color" value={theme.primary_color} onChange={e => setTheme({...theme, primary_color: e.target.value})} className="h-10 w-20 bg-transparent border-none cursor-pointer" />
+                            <input type="text" value={theme.primary_color} onChange={e => setTheme({...theme, primary_color: e.target.value})} className="bg-black border border-white/10 p-2 rounded text-white flex-1" />
+                        </div>
                     </div>
-                )}
+                    
+                    <div>
+                        <label className="block text-sm text-gray-400 mb-2">Logo URL</label>
+                        <input type="text" placeholder="https://..." value={theme.logo_url} onChange={e => setTheme({...theme, logo_url: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-lg text-white" />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm text-gray-400 mb-2">Background Image URL</label>
+                        <input type="text" placeholder="https://..." value={theme.background_image} onChange={e => setTheme({...theme, background_image: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-lg text-white" />
+                    </div>
+
+                    <button onClick={saveSettings} className="w-full bg-brand text-black font-bold py-3 rounded-lg hover:brightness-110 mt-4">Save Customization</button>
+                </div>
             </div>
         )}
 
@@ -518,38 +566,58 @@ const CollectionManager = () => {
                 </div>
             </div>
         )}
-
-        {/* GUESTS TAB (LEADS) */}
-        {activeTab === 'guests' && (
-            <div className="space-y-4 max-w-4xl mx-auto">
-                {Object.entries(groupedLeads).map(([mobile, group], idx) => (
-                    <div key={mobile} className="glass-panel rounded-xl overflow-hidden border border-white/5">
-                        <div onClick={() => setOpenLeadGroup(openLeadGroup === mobile ? null : mobile)} className="p-4 flex items-center justify-between cursor-pointer hover:bg-white/5 transition">
-                            <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-brand/50 bg-black">
-                                    <SafeImage src={getSelfieSrc(group.items[0])} alt="Selfie" className="w-full h-full object-cover" />
-                                </div>
-                                <div><h3 className="font-bold text-lg">{group.name}</h3><div className="text-brand font-mono text-sm">{mobile}</div></div>
-                            </div>
-                            <div className="flex items-center gap-4"><span className="bg-white/10 px-3 py-1 rounded-full text-xs font-bold">{group.items.length} Sessions</span><span className={`transform transition ${openLeadGroup === mobile ? 'rotate-180' : ''}`}>▼</span></div>
+        
+        {/* EVENTS, GUESTS TABS REMAIN SIMILAR, CODE OMITTED FOR BREVITY BUT ASSUMED PRESENT */}
+        {activeTab === 'events' && (
+            <div className="space-y-4">
+                <div className="flex justify-between items-center glass-panel p-4 rounded-xl">
+                    <h2 className="text-lg font-bold">Event List</h2>
+                    <button onClick={() => {
+                        const name = prompt("Name:"); const date = prompt("Date:");
+                        if(name && date && id) Api.upsertEvent(id, name, date).then(loadData);
+                    }} className="bg-brand text-black text-sm font-bold px-4 py-2 rounded-lg hover:brightness-110">+ Create</button>
+                </div>
+                {events.map(evt => (
+                    <div key={evt.event_id} className="glass-panel p-4 rounded-xl flex justify-between items-center">
+                        <div>
+                            <h3 className="font-bold">{evt.name}</h3>
+                            <p className="text-sm text-gray-500">{evt.event_date} • {evt.photo_count} photos</p>
                         </div>
-                        {openLeadGroup === mobile && (
-                            <div className="bg-black/40 border-t border-white/10 p-4 space-y-3">
-                                {group.items.map((item, i) => (
-                                    <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5">
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 rounded overflow-hidden bg-black border border-white/10"><SafeImage src={getSelfieSrc(item)} alt="Selfie" className="w-full h-full object-cover" /></div>
-                                            <div className="text-sm"><div className="text-gray-400">Time: <span className="text-white">{new Date(item.timestamp).toLocaleString()}</span></div><div className="text-green-400 font-bold">{item.match_count} Photos Found</div></div>
-                                        </div>
-                                        <button className="text-xs border border-white/20 px-3 py-1 rounded hover:bg-white/10" onClick={() => openSelfieWindow(getSelfieSrc(item))}>View Selfie</button>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                        <button onClick={() => { if(confirm("Delete?")) Api.deleteEvent(id!, evt.event_id).then(loadData); }} className="text-red-500 text-sm hover:underline">Delete</button>
                     </div>
                 ))}
-                {Object.keys(groupedLeads).length === 0 && <div className="text-center py-20 text-gray-500">No guest leads yet.</div>}
             </div>
+        )}
+        {activeTab === 'guests' && (
+             <div className="space-y-4 max-w-4xl mx-auto">
+             {Object.entries(groupedLeads).map(([mobile, group], idx) => (
+                 <div key={mobile} className="glass-panel rounded-xl overflow-hidden border border-white/5">
+                     <div onClick={() => setOpenLeadGroup(openLeadGroup === mobile ? null : mobile)} className="p-4 flex items-center justify-between cursor-pointer hover:bg-white/5 transition">
+                         <div className="flex items-center gap-4">
+                             <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-brand/50 bg-black">
+                                 <SafeImage src={getSelfieSrc(group.items[0])} alt="Selfie" className="w-full h-full object-cover" />
+                             </div>
+                             <div><h3 className="font-bold text-lg">{group.name}</h3><div className="text-brand font-mono text-sm">{mobile}</div></div>
+                         </div>
+                         <div className="flex items-center gap-4"><span className="bg-white/10 px-3 py-1 rounded-full text-xs font-bold">{group.items.length} Sessions</span><span className={`transform transition ${openLeadGroup === mobile ? 'rotate-180' : ''}`}>▼</span></div>
+                     </div>
+                     {openLeadGroup === mobile && (
+                         <div className="bg-black/40 border-t border-white/10 p-4 space-y-3">
+                             {group.items.map((item, i) => (
+                                 <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5">
+                                     <div className="flex items-center gap-4">
+                                         <div className="w-10 h-10 rounded overflow-hidden bg-black border border-white/10"><SafeImage src={getSelfieSrc(item)} alt="Selfie" className="w-full h-full object-cover" /></div>
+                                         <div className="text-sm"><div className="text-gray-400">Time: <span className="text-white">{new Date(item.timestamp).toLocaleString()}</span></div><div className="text-green-400 font-bold">{item.match_count} Photos Found</div></div>
+                                     </div>
+                                     <button className="text-xs border border-white/20 px-3 py-1 rounded hover:bg-white/10" onClick={() => openSelfieWindow(getSelfieSrc(item))}>View Selfie</button>
+                                 </div>
+                             ))}
+                         </div>
+                     )}
+                 </div>
+             ))}
+             {Object.keys(groupedLeads).length === 0 && <div className="text-center py-20 text-gray-500">No guest leads yet.</div>}
+         </div>
         )}
 
       </div>

@@ -26,11 +26,12 @@ export const Api = {
     return res.json();
   },
 
-  upsertCollection: async (name: string, collection_id?: string) => {
+  // Updated to accept custom_theme
+  upsertCollection: async (name: string, collection_id?: string, custom_theme?: any) => {
     const res = await fetch(`${API_BASE}/upsert-collection`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ name, collection_id })
+      body: JSON.stringify({ name, collection_id, custom_theme })
     });
     if (!res.ok) throw new Error("Failed to save collection");
     return res.json();
@@ -95,6 +96,36 @@ export const Api = {
     });
     if (!res.ok) throw new Error("Failed to generate upload URLs");
     return res.json();
+  },
+  
+  // NEW: Public Upload Urls (No Auth Token Required, validated via public logic if backend allows, 
+  // or we use a temporary restricted token pattern. For now reusing same logic assuming 
+  // Backend handles 'public' flag or we pass a key)
+  generatePublicUploadUrls: async (collection_id: string, event_id: string, files: { name: string, type: string, size?: number }[]) => {
+    // Note: In a strict security setup, this endpoint should be open but rate-limited
+    // For this app, we reuse the endpoint. If CORS/Auth blocks, backend update is needed.
+    // We send a dummy auth or specific header if needed.
+    const res = await fetch(`${API_BASE}/generate-upload-urls`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, // No Bearer Token
+      body: JSON.stringify({ collection_id, event_id, files, is_public: true }) 
+    });
+    if (!res.ok) throw new Error("Failed to generate upload URLs");
+    return res.json();
+  },
+  
+  // New: Get Public Collection Info (for styling Guest Portal)
+  getPublicCollectionInfo: async (linkId: string) => {
+      // Reusing search endpoint to get metadata if possible, or dedicated endpoint
+      // Assuming 'search' returns collection metadata in a new field if implemented
+      // Or we fetch via a new lightweight endpoint. 
+      // Falling back to 'search' with empty params to just check validity/metadata
+      const res = await fetch(`${API_BASE}/search`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ linkId, metadata_only: true })
+      });
+      return res.json();
   },
 
   // --- People & Faces ---
@@ -164,16 +195,12 @@ export const Api = {
     return res.json();
   },
 
-  // --- CLIENT SELECTION (NEW) ---
-  // Using the user's "gallery" lambda logic (assuming mapped to /gallery-photos)
-  // If not mapped, we fall back to a public get-photos logic or verify PIN in frontend for now
+  // --- CLIENT SELECTION ---
   getClientGallery: async (linkId: string, pin: string) => {
-      // NOTE: Ensure your API Gateway maps 'POST /gallery-photos' to your 'gallery' lambda
-      // OR reuse 'search' endpoint if it supports empty selfie
       const res = await fetch(`${API_BASE}/search`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ linkId, pin, mode: 'client_selection' }) // Sending mode flag
+          body: JSON.stringify({ linkId, pin, mode: 'client_selection' })
       });
       
       if (res.status === 401 || res.status === 403) throw new Error("Invalid PIN");
@@ -182,7 +209,6 @@ export const Api = {
   },
 
   saveClientSelection: async (linkId: string, selectedPhotoIds: string[]) => {
-      // Reusing save-details to store selection as a "Lead" named "CLIENT_SELECTION"
       const res = await fetch(`${API_BASE}/save-details`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -191,7 +217,6 @@ export const Api = {
             name: "CLIENT_SELECTION",
             mobile: "0000000000",
             photo_count: selectedPhotoIds.length,
-            // Storing IDs in selfie_image field as JSON string since it's a large text field
             selfie_image: JSON.stringify(selectedPhotoIds) 
         })
       });

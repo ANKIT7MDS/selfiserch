@@ -7,6 +7,7 @@ import CollectionManager from './pages/CollectionManager';
 import SuperAdmin from './pages/SuperAdmin';
 import GuestPortal from './pages/GuestPortal';
 import ClientSelection from './pages/ClientSelection';
+import QuickUpload from './pages/QuickUpload';
 
 // Auth Wrapper
 const RequireAuth = ({ children, allowedRoles }: { children: React.ReactElement, allowedRoles?: string[] }) => {
@@ -39,13 +40,13 @@ const MainRouter = () => {
   const navigate = useNavigate();
   const [isGuest, setIsGuest] = useState(false);
   const [isClientSelect, setIsClientSelect] = useState(false);
+  const [isQuickUpload, setIsQuickUpload] = useState(false);
   const [isProcessingToken, setIsProcessingToken] = useState(true);
 
   useEffect(() => {
     // 1. Check for Cognito Token
     const hash = window.location.hash;
     if (hash && hash.includes('id_token')) {
-       // ... (existing token logic)
        try {
           const params = new URLSearchParams(hash.substring(hash.indexOf('#') + 1));
           const idToken = params.get('id_token') || hash.split('id_token=')[1]?.split('&')[0];
@@ -74,10 +75,11 @@ const MainRouter = () => {
        }
     }
 
-    // 2. Check for Guest or Client Link
-    // Client Link format: /#/client-select?linkId=...
+    // 2. Check for Special Routes (Guest, Client, Quick Upload)
     if (location.pathname.includes('client-select')) {
         setIsClientSelect(true);
+    } else if (location.pathname.includes('quick-upload')) {
+        setIsQuickUpload(true);
     } else {
         const params = new URLSearchParams(location.search);
         if (params.get('linkId') && !location.pathname.includes('login')) {
@@ -92,6 +94,7 @@ const MainRouter = () => {
      return <div className="h-screen bg-black text-brand flex items-center justify-center">Verifying Access...</div>;
   }
 
+  if (isQuickUpload) return <QuickUpload />;
   if (isClientSelect) return <ClientSelection />;
   if (isGuest) return <GuestPortal />;
 
@@ -99,6 +102,7 @@ const MainRouter = () => {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/client-select" element={<ClientSelection />} />
+      <Route path="/quick-upload/:collectionId" element={<QuickUpload />} />
       
       {/* Super Admin Routes */}
       <Route path="/admin" element={
