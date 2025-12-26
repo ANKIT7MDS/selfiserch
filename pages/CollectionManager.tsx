@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Api } from '../services/api';
 import { EventData, Photo, FaceGroup, Lead, Collection } from '../types';
 
-// Helper to calculate CSS for face crop
 const getFaceStyle = (url: string, bbox: any) => {
     if (!url) return {};
     const style: React.CSSProperties = {
@@ -24,12 +23,17 @@ const getFaceStyle = (url: string, bbox: any) => {
     return style;
 };
 
-// Safe Image Component (Fix for broken selfies/images)
+// Robust SafeImage component for broken selfies
 const SafeImage = ({ src, alt, className }: { src: string, alt: string, className?: string }) => {
     const [error, setError] = useState(false);
     
-    if (error || !src || src === 'undefined' || src.length < 10) {
-        return <div className={`${className} bg-gray-800 flex items-center justify-center`}><span className="text-xs text-gray-500">No Img</span></div>;
+    // Check if src is valid
+    if (error || !src || src === 'undefined' || src === 'null' || src.length < 5) {
+        return (
+            <div className={`${className} bg-gray-800 flex items-center justify-center border border-white/10`}>
+                <span className="text-[10px] text-gray-500">No Img</span>
+            </div>
+        );
     }
 
     return <img src={src} alt={alt} className={className} onError={() => setError(true)} />;
@@ -102,6 +106,7 @@ const CollectionManager = () => {
         Api.getPhotos(id),
         Api.getCollections()
       ]);
+      
       setEvents(evtData.events || []);
       const loadedPhotos = photoData.photos || [];
       setPhotos(loadedPhotos);
@@ -119,31 +124,47 @@ const CollectionManager = () => {
           }
       }
       
-      // FIX: Face Naming Persistence
-      // 1. Calculate faces from photos (Raw)
+      // --- FIXED: Face Name Persistence Logic ---
+      // 1. Calculate raw faces from new photos
       const calculatedFaces = buildFacesFromPhotos(loadedPhotos);
+      
       try {
-        // 2. Fetch saved faces from DB
-        const faceData = await Api.listPeople(id);
-        const savedFaces = faceData.people || [];
+        // 2. Fetch SAVED names from server
+        const savedData = await Api.listPeople(id);
+        const savedPeople = savedData.people || [];
         
-        // 3. Merge: Prioritize saved names
-        const mergedFaces = calculatedFaces.map(cF => {
-            const match = savedFaces.find((sF: any) => sF.FaceId === cF.FaceId);
-            if (match && match.FaceName && match.FaceName !== "Unknown") {
-                return { ...cF, FaceName: match.FaceName };
-            }
-            return cF;
+        // 3. Create a Map for O(1) lookup
+        const nameMap = new Map();
+        savedPeople.forEach((p: any) => {
+             // Map both FaceId and face_id to cover backend inconsistencies
+             if (p.FaceId) nameMap.set(p.FaceId, p.FaceName);
+             if (p.face_id) nameMap.set(p.face_id, p.FaceName || p.name);
         });
-        setFaces(mergedFaces);
-      } catch(e) { setFaces(calculatedFaces); }
 
-      // Leads
+        // 4. Merge: If saved name exists, use it. Else use "Unknown"
+        const mergedFaces = calculatedFaces.map(cF => {
+            const savedName = nameMap.get(cF.FaceId);
+            return {
+                ...cF,
+                FaceName: savedName || cF.FaceName || "Unknown"
+            };
+        });
+        
+        setFaces(mergedFaces);
+      } catch(e) {
+          console.warn("Could not load saved faces", e);
+          setFaces(calculatedFaces);
+      }
+
+      // --- FIXED: Leads Data ---
       try {
         const leadData = await Api.getLeads(id);
-        setLeads(leadData || []);
+        // Filter out client selection from regular leads
+        const regularLeads = leadData.filter(l => l.name !== "CLIENT_SELECTION");
+        setLeads(regularLeads);
         
-        const selectionLead = leadData?.find(l => l.name === "CLIENT_SELECTION");
+        // Check for client selection
+        const selectionLead = leadData.find(l => l.name === "CLIENT_SELECTION");
         if(selectionLead && selectionLead.selfie_image) {
             try {
                 const ids = JSON.parse(selectionLead.selfie_image);
@@ -163,6 +184,8 @@ const CollectionManager = () => {
       const map = new Map<string, FaceGroup>();
       allPhotos.forEach(photo => {
           const sampleUrl = photo.thumbnail_url || photo.url;
+          
+          // Handle 'faces' array (Rekognition details)
           const faceObjs = photo.faces || [];
           faceObjs.forEach((f: any) => {
               const fid = f.FaceId || f.face_id;
@@ -175,6 +198,8 @@ const CollectionManager = () => {
                   if(!existing.BoundingBox && f.BoundingBox) existing.BoundingBox = f.BoundingBox;
               }
           });
+          
+          // Handle 'face_ids' array (Simple IDs)
           const faceIds = photo.face_ids || [];
           faceIds.forEach(fid => {
               if(!fid) return;
@@ -192,15 +217,16 @@ const CollectionManager = () => {
     e.stopPropagation();
     const newName = prompt("Enter Name for this person:", currentName === "Unknown" ? "" : currentName);
     if (newName && id) {
-        // Optimistic Update
+        // Optimistic UI Update
         setFaces(prev => prev.map(f => f.FaceId === faceId ? { ...f, FaceName: newName } : f));
         
         try {
             await Api.saveFaceName(id, faceId, newName);
-            // DO NOT call loadData() immediately here to avoid overwriting state before backend propagates
+            // We do NOT reload data here to prevent UI flicker. 
+            // The state is already correct.
         } catch (error) { 
             alert("Failed to save name on server");
-            loadData(); // Revert on fail
+            loadData(); // Revert on failure
         }
     }
   };
@@ -209,7 +235,6 @@ const CollectionManager = () => {
       const newName = prompt("Edit Event Name:", oldName);
       if (newName && newName !== oldName && id) {
           try {
-              // We reuse upsertEvent but need date. Find existing date or use today
               const evt = events.find(e => e.event_id === eventId);
               await Api.upsertEvent(id, newName, evt?.event_date || new Date().toISOString().split('T')[0], eventId);
               loadData();
@@ -221,7 +246,7 @@ const CollectionManager = () => {
       if(!id || !collectionInfo) return;
       try {
           await Api.upsertCollection(collectionInfo.name, id, theme);
-          alert("Theme Saved! Your guest links will now use this branding.");
+          alert("Theme Saved!");
       } catch(e) {
           alert("Failed to save settings");
       }
@@ -261,7 +286,6 @@ const CollectionManager = () => {
       setIsDeleting(true);
       try {
           const ids = Array.from(selectedPhotos);
-          // Process sequentially to avoid overwhelming browser/api
           for (let i = 0; i < ids.length; i++) {
               await Api.deletePhoto(id, ids[i]);
           }
@@ -270,7 +294,7 @@ const CollectionManager = () => {
           loadData();
       } catch(e) {
           console.error(e);
-          alert("Failed to delete some photos. Check console for details.");
+          alert("Failed to delete some photos.");
       } finally {
           setIsDeleting(false);
       }
@@ -329,7 +353,12 @@ const CollectionManager = () => {
     if (!id || selectedLinkEvents.length === 0) return alert("Select at least one event");
     try {
         const res = await Api.generateLink({ collection_id: id, event_ids: selectedLinkEvents, expiry_hours: expiryHours, password: linkPassword });
-        const guestUrl = `${window.location.origin}/#/?linkId=${res.searchUrl.split('linkId=')[1]}`;
+        // Clean URL generation
+        const cleanUrl = res.searchUrl.replace('linkId=', ''); 
+        const linkIdOnly = cleanUrl.includes('?') ? cleanUrl.split('?')[1] : cleanUrl;
+        const finalId = res.searchUrl.split('linkId=')[1] || linkIdOnly;
+        
+        const guestUrl = `${window.location.origin}/#/?linkId=${finalId}`;
         setGeneratedLink(guestUrl);
     } catch (e) { alert("Failed to generate link"); }
   };
@@ -357,9 +386,7 @@ const CollectionManager = () => {
   const getSelfieSrc = (item: Lead) => {
       let b64 = item.selfie_b64 || item.selfie_image;
       if (!b64) return "";
-      // If it's a raw S3 URL (starts with http) use it as is
       if (b64.startsWith('http')) return b64;
-      // If it's base64 but misses prefix
       if (!b64.startsWith('data:')) b64 = `data:image/jpeg;base64,${b64}`;
       return b64;
   };
@@ -377,7 +404,6 @@ const CollectionManager = () => {
       return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  // Calculate size for an event
   const getEventSize = (eventId: string) => {
       const eventPhotos = photos.filter(p => p.event_id === eventId);
       const size = eventPhotos.reduce((acc, curr) => acc + (curr.file_size || 0), 0);
@@ -431,6 +457,7 @@ const CollectionManager = () => {
 
       <div className="max-w-7xl mx-auto p-4 md:p-8 animate-fade-in min-h-[80vh]">
         
+        {/* GALLERY & SELECTION */}
         {(activeTab === 'gallery' || activeTab === 'selection') && (
             <div className="space-y-6">
                 
@@ -459,7 +486,6 @@ const CollectionManager = () => {
                                  <h2 className="text-xl font-bold text-brand">Client Selection Mode</h2>
                                  <p className="text-sm text-gray-400">Photos selected by client: {clientSelections.size}</p>
                              </div>
-                             
                              <div className="flex gap-2">
                                  <input type="text" placeholder="Set Link Password" value={linkPassword} onChange={e => setLinkPassword(e.target.value)} className="bg-black/50 border border-white/20 px-3 py-2 rounded text-sm outline-none" />
                                  <button onClick={generateClientLink} className="bg-white text-black font-bold px-4 py-2 rounded-lg text-sm">Create Link</button>
@@ -517,7 +543,7 @@ const CollectionManager = () => {
             </div>
         )}
 
-        {/* Other Tabs */}
+        {/* EVENTS TAB */}
         {activeTab === 'events' && (
             <div className="space-y-4">
                 <div className="flex justify-between items-center glass-panel p-4 rounded-xl">
@@ -542,6 +568,7 @@ const CollectionManager = () => {
             </div>
         )}
         
+        {/* GUESTS TAB */}
         {activeTab === 'guests' && (
              <div className="space-y-4 max-w-4xl mx-auto">
              {Object.entries(groupedLeads).map(([mobile, group], idx) => (
@@ -574,7 +601,7 @@ const CollectionManager = () => {
          </div>
         )}
 
-        {/* Upload, Links, Settings Tabs (Same as before) */}
+        {/* UPLOAD TAB */}
         {activeTab === 'upload' && (
             <div className="glass-panel p-8 rounded-2xl max-w-2xl mx-auto text-center space-y-8">
                 <div>
@@ -619,6 +646,44 @@ const CollectionManager = () => {
             </div>
         )}
         
+        {/* LINKS TAB (FIXED VISIBILITY) */}
+        {activeTab === 'links' && (
+            <div className="grid md:grid-cols-2 gap-8 glass-panel p-8 rounded-2xl">
+                <div>
+                    <h3 className="font-bold mb-4 text-lg">Generate Search Link</h3>
+                    {/* Removed fixed height 'h-48' to ensure content is visible */}
+                    <div className="bg-black/50 border border-white/10 rounded-lg p-3 max-h-96 overflow-y-auto mb-4">
+                        {events.length > 0 ? events.map(e => (
+                            <label key={e.event_id} className="flex items-center gap-2 p-2 hover:bg-white/5 rounded cursor-pointer">
+                                <input type="checkbox" checked={selectedLinkEvents.includes(e.event_id)} onChange={ev => {
+                                    if(ev.target.checked) setSelectedLinkEvents([...selectedLinkEvents, e.event_id]);
+                                    else setSelectedLinkEvents(selectedLinkEvents.filter(x => x !== e.event_id));
+                                }} className="accent-brand" />
+                                <span className="text-sm">{e.name}</span>
+                            </label>
+                        )) : (
+                            <div className="text-sm text-gray-500 p-2">No events created yet.</div>
+                        )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 mb-4">
+                        <input type="number" placeholder="Hours" value={expiryHours} onChange={e => setExpiryHours(Number(e.target.value))} className="bg-black border border-white/10 p-2 rounded-lg text-white" />
+                        <input type="text" placeholder="PIN" value={linkPassword} onChange={e => setLinkPassword(e.target.value)} className="bg-black border border-white/10 p-2 rounded-lg text-white" />
+                    </div>
+                    <button onClick={handleGenerateLink} className="w-full bg-white text-black font-bold py-3 rounded-lg hover:bg-gray-200">Generate</button>
+                </div>
+                <div className="flex flex-col items-center justify-center border-l border-white/10 min-h-[200px]">
+                    {generatedLink ? (
+                        <div className="text-center w-full">
+                            <div className="text-brand text-5xl mb-4">✓</div>
+                            <div className="bg-black p-3 rounded border border-brand/50 text-brand text-xs break-all font-mono mb-4">{generatedLink}</div>
+                            <button onClick={() => navigator.clipboard.writeText(generatedLink)} className="bg-brand text-black font-bold px-6 py-2 rounded-lg">Copy Link</button>
+                        </div>
+                    ) : <div className="text-gray-500">Select events to start</div>}
+                </div>
+            </div>
+        )}
+        
+        {/* SETTINGS TAB */}
         {activeTab === 'settings' && (
             <div className="glass-panel p-8 rounded-2xl max-w-2xl mx-auto">
                 <h2 className="text-2xl font-bold mb-6">Customize Branding</h2>

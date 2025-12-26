@@ -8,6 +8,7 @@ const getHeaders = (isPublic = false) => {
     'Content-Type': 'application/json'
   };
   const token = localStorage.getItem('idToken');
+  // Only add Authorization if NOT public and token exists
   if (token && !isPublic) {
     headers['Authorization'] = `Bearer ${token}`;
   }
@@ -50,12 +51,13 @@ export const Api = {
   },
 
   // --- Events ---
-  // Updated: Accepts isPublic to bypass auth header for Quick Upload
   getEvents: async (collection_id: string, isPublic = false): Promise<{ events: EventData[] }> => {
+    // IMPORTANT: If isPublic is true, we must ensure the backend accepts unauthenticated requests
+    // OR we might need a specific 'public' endpoint. Assuming current endpoint handles it based on payload.
     const res = await fetch(`${API_BASE}/get-events`, {
       method: 'POST',
       headers: getHeaders(isPublic),
-      body: JSON.stringify({ collection_id })
+      body: JSON.stringify({ collection_id, is_public: isPublic }) 
     });
     if (!res.ok) throw new Error("Failed to fetch events");
     return res.json();
@@ -92,7 +94,6 @@ export const Api = {
     return res.json();
   },
 
-  // FIXED: Delete Photo
   deletePhoto: async (collection_id: string, photo_id: string) => {
     const res = await fetch(`${API_BASE}/delete-photo`, {
       method: 'POST',
@@ -116,7 +117,7 @@ export const Api = {
   generatePublicUploadUrls: async (collection_id: string, event_id: string, files: { name: string, type: string, size?: number }[]) => {
     const res = await fetch(`${API_BASE}/generate-upload-urls`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }, // No Auth
+      headers: { 'Content-Type': 'application/json' }, 
       body: JSON.stringify({ collection_id, event_id, files, is_public: true }) 
     });
     if (!res.ok) throw new Error("Failed to generate upload URLs");
@@ -141,6 +142,7 @@ export const Api = {
         body: JSON.stringify({ collection_id })
       });
       const data = await res.json();
+      // Robust parsing: check all possible keys where backend might send data
       return { people: data.people || data.items || data.faces || [] };
     } catch (e) {
       console.warn("listPeople API failed", e);
@@ -178,11 +180,14 @@ export const Api = {
       });
       if (!res.ok) return [];
       const data = await res.json();
+      // Handle various response structures
       if (Array.isArray(data)) return data;
-      if (data.leads) return data.leads;
-      if (data.items) return data.items;
+      if (Array.isArray(data.leads)) return data.leads;
+      if (Array.isArray(data.items)) return data.items;
+      if (Array.isArray(data.body)) return JSON.parse(data.body); // Sometimes AWS returns body as string
       return [];
     } catch (e) {
+      console.warn("getLeads error", e);
       return []; 
     }
   },
@@ -201,8 +206,7 @@ export const Api = {
 
   // --- CLIENT SELECTION ---
   getClientGallery: async (linkId: string, pin: string) => {
-      // FIX: Added 'selfieImage' dummy string. 
-      // The backend validates this field exists before checking 'mode'.
+      // Sending selfieImage as bypass trigger
       const res = await fetch(`${API_BASE}/search`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -214,8 +218,8 @@ export const Api = {
           })
       });
       
-      if (res.status === 401 || res.status === 403) throw new Error("Invalid PIN");
-      if (!res.ok) throw new Error("Gallery load failed");
+      if (res.status === 401 || res.status === 403) throw new Error("INCORRECT_PIN");
+      if (!res.ok) throw new Error("GALLERY_ERROR");
       return res.json();
   },
 

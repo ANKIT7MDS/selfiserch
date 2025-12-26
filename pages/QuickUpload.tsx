@@ -12,16 +12,16 @@ const QuickUpload = () => {
     const [progress, setProgress] = useState(0);
     const [status, setStatus] = useState("Loading event details...");
     
+    // Manual fallback for extreme cases
+    const [manualId, setManualId] = useState("");
+
     useEffect(() => {
-        if(collectionId) {
-            loadEvents();
-        }
+        if(collectionId) loadEvents(collectionId);
     }, [collectionId]);
 
-    const loadEvents = async () => {
+    const loadEvents = async (id: string) => {
         try {
-            // Updated to pass true for public access
-            const res = await Api.getEvents(collectionId!, true); 
+            const res = await Api.getEvents(id, true); 
             setEvents(res.events || []);
             setStatus("Ready to upload");
         } catch(e) {
@@ -35,7 +35,8 @@ const QuickUpload = () => {
     };
 
     const handleUpload = async () => {
-        if (!collectionId || !selectedEventId || files.length === 0) return;
+        const cId = collectionId || manualId;
+        if (!cId || !selectedEventId || files.length === 0) return;
         setUploading(true);
         setProgress(0);
         setStatus("Initializing Upload...");
@@ -50,8 +51,7 @@ const QuickUpload = () => {
               setStatus(`Uploading batch ${Math.floor(i / BATCH_SIZE) + 1} / ${Math.ceil(totalFiles/BATCH_SIZE)}`);
               
               const filePayload = batch.map(f => ({ name: f.name, type: f.type, size: f.size }));
-              // Using the Public wrapper
-              const { urls } = await Api.generatePublicUploadUrls(collectionId, selectedEventId, filePayload);
+              const { urls } = await Api.generatePublicUploadUrls(cId, selectedEventId, filePayload);
               
               await Promise.all(batch.map(async (file, idx) => {
                 const urlObj = urls[idx];
@@ -78,7 +78,17 @@ const QuickUpload = () => {
         }
     };
 
-    if(!collectionId) return <div className="text-white text-center mt-20">Invalid Link</div>;
+    // If ID is missing entirely
+    if(!collectionId) return (
+        <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-4">
+             <div className="bg-gray-900 p-8 rounded-xl text-center">
+                 <h2 className="text-xl font-bold text-red-500 mb-4">Invalid Link</h2>
+                 <p className="mb-4">Please enter Collection ID manually if you have it:</p>
+                 <input className="bg-black border border-gray-700 p-2 rounded text-white mb-4 w-full" placeholder="Collection ID" value={manualId} onChange={e => setManualId(e.target.value)} />
+                 <button onClick={() => loadEvents(manualId)} className="bg-brand text-black font-bold px-4 py-2 rounded">Load Events</button>
+             </div>
+        </div>
+    );
 
     return (
         <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col items-center justify-center p-4">
@@ -92,7 +102,10 @@ const QuickUpload = () => {
                 </div>
 
                 {status.includes("Error") ? (
-                    <div className="text-red-500 bg-red-900/20 p-4 rounded border border-red-500/50">{status}</div>
+                    <div className="text-red-500 bg-red-900/20 p-4 rounded border border-red-500/50 mb-4">
+                        {status}
+                        <button onClick={() => window.location.reload()} className="block mt-2 text-xs underline text-white">Retry</button>
+                    </div>
                 ) : (
                     <div className="space-y-6">
                         <div>
