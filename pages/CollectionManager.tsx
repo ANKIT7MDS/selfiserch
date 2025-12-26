@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Api } from '../services/api';
 import { EventData, Photo, FaceGroup, Lead } from '../types';
 
-// Helper to calculate CSS for face crop (ported from HTML)
+// Helper to calculate CSS for face crop
 const getFaceStyle = (url: string, bbox: any) => {
     if (!url) return {};
     
@@ -22,7 +22,7 @@ const getFaceStyle = (url: string, bbox: any) => {
         const W = clamp01(bbox.Width);
         const H = clamp01(bbox.Height);
 
-        // Zoom logic from HTML
+        // Zoom logic
         const zoom = 1 / Math.max(W, H, 0.0001);
         const cx = (L + W/2) * 100;
         const cy = (T + H/2) * 100;
@@ -31,6 +31,28 @@ const getFaceStyle = (url: string, bbox: any) => {
         style.backgroundPosition = `${cx}% ${cy}%`;
     }
     return style;
+};
+
+// Safe Image Component to prevent infinite loops
+const SafeImage = ({ src, alt, className }: { src: string, alt: string, className?: string }) => {
+    const [error, setError] = useState(false);
+
+    if (error || !src || src.includes('undefined')) {
+        return (
+            <div className={`${className} bg-gray-800 flex items-center justify-center`}>
+                <span className="text-xs text-gray-500">No Image</span>
+            </div>
+        );
+    }
+
+    return (
+        <img 
+            src={src} 
+            alt={alt} 
+            className={className}
+            onError={() => setError(true)}
+        />
+    );
 };
 
 const CollectionManager = () => {
@@ -91,11 +113,9 @@ const CollectionManager = () => {
         if (apiFaces.length > 0) {
             setFaces(apiFaces);
         } else {
-            console.log("No API faces, building from photos...");
             setFaces(buildFacesFromPhotos(loadedPhotos));
         }
       } catch(e) { 
-          console.warn("Face fetch error, building local", e);
           setFaces(buildFacesFromPhotos(loadedPhotos));
       }
 
@@ -159,9 +179,7 @@ const CollectionManager = () => {
     let res = photos;
     if (filterFaceId) {
         res = res.filter(p => {
-             // Check Face Objects
              if(p.faces && p.faces.some((f: any) => (f.FaceId === filterFaceId || f.face_id === filterFaceId))) return true;
-             // Check Face ID Strings
              if(p.face_ids && p.face_ids.includes(filterFaceId)) return true;
              return false;
         });
@@ -235,7 +253,7 @@ const CollectionManager = () => {
     } catch (e) { alert("Failed to generate link"); }
   };
 
-  // Group Leads by Mobile (like HTML version)
+  // Group Leads by Mobile
   const groupedLeads = leads.reduce((acc, lead) => {
       const phone = lead.mobile || "Unknown";
       if (!acc[phone]) acc[phone] = { name: lead.name || "Guest", items: [] };
@@ -243,17 +261,26 @@ const CollectionManager = () => {
       return acc;
   }, {} as Record<string, { name: string, items: Lead[] }>);
 
-  // Helper to fix selfie string
+  // Helper to fix selfie string - Robust against truncated data
   const getSelfieSrc = (item: Lead) => {
-      const b64 = item.selfie_b64 || item.selfie_image;
-      if (!b64) return "https://via.placeholder.com/150?text=No+Selfie";
-      return b64.startsWith('data:') ? b64 : `data:image/jpeg;base64,${b64}`;
+      let b64 = item.selfie_b64 || item.selfie_image;
+      if (!b64 || b64.length < 100) return ""; // Ignore small/corrupted data
+      
+      if (!b64.startsWith('data:')) {
+          b64 = `data:image/jpeg;base64,${b64}`;
+      }
+      return b64;
   };
+
+  const openSelfieWindow = (src: string) => {
+      const w = window.open("");
+      if(w) w.document.write(`<img src="${src}" style="max-width:100%"/>`);
+  }
 
   return (
     <div className="min-h-screen bg-black text-white font-sans selection:bg-brand selection:text-black">
       
-      {/* 1. TOP HEADER (Reverted from Sidebar) */}
+      {/* 1. TOP HEADER */}
       <div className="sticky top-0 z-50 bg-black/80 backdrop-blur-xl border-b border-white/10">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -285,7 +312,6 @@ const CollectionManager = () => {
                       : 'border-transparent text-gray-400 hover:text-white hover:bg-white/5'
                     }`}
                   >
-                    {/* Using simple emojis if FontAwesome isn't loaded, or classes if they are */}
                     <span>{tab.id === 'gallery' ? '🖼️' : tab.id === 'events' ? '📅' : tab.id === 'upload' ? '☁️' : tab.id === 'links' ? '🔗' : '👥'}</span>
                     {tab.label}
                     {tab.id === 'guests' && leads.length > 0 && <span className="ml-1 bg-white/10 text-xs px-1.5 rounded">{leads.length}</span>}
@@ -301,7 +327,7 @@ const CollectionManager = () => {
         {/* GALLERY TAB */}
         {activeTab === 'gallery' && (
             <div className="space-y-6">
-                {/* Face Icons Bar - WITH CSS CROP LOGIC */}
+                {/* Face Icons Bar */}
                 <div className="glass-panel p-4 rounded-2xl overflow-x-auto">
                     <div className="flex gap-4 min-w-max pb-2">
                         <div onClick={() => setFilterFaceId(null)} className={`flex flex-col items-center cursor-pointer transition ${!filterFaceId ? 'opacity-100' : 'opacity-50'}`}>
@@ -313,7 +339,6 @@ const CollectionManager = () => {
                         
                         {faces.map(face => (
                             <div key={face.FaceId} onClick={() => setFilterFaceId(face.FaceId)} className={`flex flex-col items-center group relative cursor-pointer ${filterFaceId === face.FaceId ? 'scale-105' : 'opacity-80 hover:opacity-100'}`}>
-                                {/* The Magic Crop Div */}
                                 <div 
                                     className={`w-16 h-16 rounded-full border-2 shadow-lg mb-1 transition-all ${filterFaceId === face.FaceId ? 'border-brand shadow-brand/20' : 'border-gray-700'}`}
                                     style={getFaceStyle(face.thumbnail || face.sampleUrl || "", face.BoundingBox)}
@@ -331,7 +356,7 @@ const CollectionManager = () => {
                     </div>
                 </div>
 
-                {/* Filters Row */}
+                {/* Filters */}
                 <div className="flex justify-between items-center glass-panel p-3 rounded-xl">
                     <div className="flex items-center gap-3">
                         <select value={filterEventId} onChange={e => setFilterEventId(e.target.value)} className="bg-black border border-white/10 rounded-lg px-3 py-1.5 text-sm focus:border-brand outline-none">
@@ -444,7 +469,7 @@ const CollectionManager = () => {
             </div>
         )}
 
-        {/* GUESTS TAB (LEADS) - Accordion Style */}
+        {/* GUESTS TAB (LEADS) */}
         {activeTab === 'guests' && (
             <div className="space-y-4 max-w-4xl mx-auto">
                 {Object.entries(groupedLeads).map(([mobile, group], idx) => (
@@ -455,11 +480,12 @@ const CollectionManager = () => {
                             className="p-4 flex items-center justify-between cursor-pointer hover:bg-white/5 transition"
                         >
                             <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-brand/50">
-                                    <img 
+                                <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-brand/50 bg-black">
+                                    {/* USE SAFE IMAGE HERE */}
+                                    <SafeImage 
                                         src={getSelfieSrc(group.items[0])} 
-                                        className="w-full h-full object-cover" 
-                                        onError={(e) => (e.currentTarget.src = "https://via.placeholder.com/150?text=Error")}
+                                        alt="Selfie"
+                                        className="w-full h-full object-cover"
                                     />
                                 </div>
                                 <div>
@@ -479,16 +505,20 @@ const CollectionManager = () => {
                                 {group.items.map((item, i) => (
                                     <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5">
                                         <div className="flex items-center gap-4">
-                                            <img src={getSelfieSrc(item)} className="w-10 h-10 rounded object-cover bg-black" />
+                                            {/* USE SAFE IMAGE HERE */}
+                                            <div className="w-10 h-10 rounded overflow-hidden bg-black border border-white/10">
+                                                <SafeImage 
+                                                    src={getSelfieSrc(item)} 
+                                                    alt="Selfie"
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            </div>
                                             <div className="text-sm">
                                                 <div className="text-gray-400">Time: <span className="text-white">{new Date(item.timestamp).toLocaleString()}</span></div>
                                                 <div className="text-green-400 font-bold">{item.match_count} Photos Found</div>
                                             </div>
                                         </div>
-                                        <button className="text-xs border border-white/20 px-3 py-1 rounded hover:bg-white/10" onClick={() => {
-                                            const w = window.open("");
-                                            if(w) w.document.write(`<img src="${getSelfieSrc(item)}" style="max-width:100%"/>`);
-                                        }}>View Selfie</button>
+                                        <button className="text-xs border border-white/20 px-3 py-1 rounded hover:bg-white/10" onClick={() => openSelfieWindow(getSelfieSrc(item))}>View Selfie</button>
                                     </div>
                                 ))}
                             </div>
