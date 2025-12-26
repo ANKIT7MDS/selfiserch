@@ -24,10 +24,15 @@ const getFaceStyle = (url: string, bbox: any) => {
     return style;
 };
 
-// Safe Image Component
+// Safe Image Component (Fix for broken selfies)
 const SafeImage = ({ src, alt, className }: { src: string, alt: string, className?: string }) => {
     const [error, setError] = useState(false);
-    if (error || !src || src.includes('undefined')) return <div className={`${className} bg-gray-800 flex items-center justify-center`}><span className="text-xs text-gray-500">No Image</span></div>;
+    
+    // Validate src
+    if (error || !src || src === 'undefined' || src.length < 10) {
+        return <div className={`${className} bg-gray-800 flex items-center justify-center`}><span className="text-xs text-gray-500">No Img</span></div>;
+    }
+
     return <img src={src} alt={alt} className={className} onError={() => setError(true)} />;
 };
 
@@ -115,18 +120,26 @@ const CollectionManager = () => {
           }
       }
       
+      // FIX: Face Naming Persistence
+      // 1. Calculate faces from photos (Raw)
       const calculatedFaces = buildFacesFromPhotos(loadedPhotos);
       try {
+        // 2. Fetch saved faces from DB
         const faceData = await Api.listPeople(id);
         const savedFaces = faceData.people || [];
+        
+        // 3. Merge: Prioritize saved names
         const mergedFaces = calculatedFaces.map(cF => {
             const match = savedFaces.find((sF: any) => sF.FaceId === cF.FaceId);
-            if (match && match.FaceName) return { ...cF, FaceName: match.FaceName };
+            if (match && match.FaceName) {
+                return { ...cF, FaceName: match.FaceName };
+            }
             return cF;
         });
         setFaces(mergedFaces);
       } catch(e) { setFaces(calculatedFaces); }
 
+      // Leads
       try {
         const leadData = await Api.getLeads(id);
         setLeads(leadData || []);
@@ -138,7 +151,6 @@ const CollectionManager = () => {
                 setClientSelections(new Set(ids));
             } catch(e) {}
         }
-
       } catch(e) { console.warn("Lead fetch error", e); }
       
     } catch (e) {
@@ -181,14 +193,30 @@ const CollectionManager = () => {
     e.stopPropagation();
     const newName = prompt("Enter Name for this person:", currentName === "Unknown" ? "" : currentName);
     if (newName && id) {
+        // Optimistic Update
+        setFaces(prev => prev.map(f => f.FaceId === faceId ? { ...f, FaceName: newName } : f));
+        
         try {
-            setFaces(prev => prev.map(f => f.FaceId === faceId ? { ...f, FaceName: newName } : f));
             await Api.saveFaceName(id, faceId, newName);
+            // Don't full reload to prevent UI jump, state is already updated
         } catch (error) { 
-            alert("Failed to update name");
-            loadData();
+            alert("Failed to save name on server");
+            loadData(); // Revert on fail
         }
     }
+  };
+
+  const handleEditEventName = async (eventId: string, oldName: string) => {
+      const newName = prompt("Edit Event Name:", oldName);
+      if (newName && newName !== oldName && id) {
+          try {
+              // Assuming event_date is required, passing a dummy or existing would be better if we had it handy in arguments
+              // For now assuming backend handles partial updates or we pass current date
+              const evt = events.find(e => e.event_id === eventId);
+              await Api.upsertEvent(id, newName, evt?.event_date || new Date().toISOString().split('T')[0], eventId);
+              loadData();
+          } catch(e) { alert("Failed to update name"); }
+      }
   };
 
   const saveSettings = async () => {
@@ -227,7 +255,6 @@ const CollectionManager = () => {
     else setSelectedPhotos(new Set(displayedPhotos.map(p => p.photo_id)));
   };
 
-  // ADDED: Delete Logic
   const handleDeleteSelectedPhotos = async () => {
       if(!id) return;
       if(selectedPhotos.size === 0) return alert("Select photos to delete");
@@ -235,8 +262,6 @@ const CollectionManager = () => {
 
       setIsDeleting(true);
       try {
-          // Deleting one by one as backend usually exposes single delete. 
-          // If a bulk endpoint existed, we'd use that.
           for(const photoId of selectedPhotos) {
               await Api.deletePhoto(id, photoId);
           }
@@ -245,7 +270,7 @@ const CollectionManager = () => {
           loadData();
       } catch(e) {
           console.error(e);
-          alert("Failed to delete some photos");
+          alert("Failed to delete some photos. Check console for details.");
       } finally {
           setIsDeleting(false);
       }
@@ -331,7 +356,10 @@ const CollectionManager = () => {
 
   const getSelfieSrc = (item: Lead) => {
       let b64 = item.selfie_b64 || item.selfie_image;
-      if (!b64 || b64.length < 100) return "";
+      if (!b64) return "";
+      // If it's a raw S3 URL (starts with http) use it as is
+      if (b64.startsWith('http')) return b64;
+      // If it's base64 but misses prefix
       if (!b64.startsWith('data:')) b64 = `data:image/jpeg;base64,${b64}`;
       return b64;
   };
@@ -339,6 +367,21 @@ const CollectionManager = () => {
   const openSelfieWindow = (src: string) => {
       const w = window.open("");
       if(w) w.document.write(`<img src="${src}" style="max-width:100%"/>`);
+  }
+
+  const formatBytes = (bytes: number) => {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  // Calculate size for an event
+  const getEventSize = (eventId: string) => {
+      const eventPhotos = photos.filter(p => p.event_id === eventId);
+      const size = eventPhotos.reduce((acc, curr) => acc + (curr.file_size || 0), 0);
+      return formatBytes(size);
   }
 
   return (
@@ -445,7 +488,6 @@ const CollectionManager = () => {
                             {selectedPhotos.size === displayedPhotos.length ? 'Deselect All' : 'Select All'}
                         </button>
                         {selectedPhotos.size > 0 && (
-                            // ATTACHED DELETE HANDLER HERE
                             <button 
                                 onClick={handleDeleteSelectedPhotos} 
                                 disabled={isDeleting}
@@ -475,7 +517,64 @@ const CollectionManager = () => {
             </div>
         )}
 
-        {/* Other Tabs (Omitted content is identical to previous, just wrapped in correct structure) */}
+        {/* Other Tabs */}
+        {activeTab === 'events' && (
+            <div className="space-y-4">
+                <div className="flex justify-between items-center glass-panel p-4 rounded-xl">
+                    <h2 className="text-lg font-bold">Event List</h2>
+                    <button onClick={() => {
+                        const name = prompt("Name:"); const date = prompt("Date:");
+                        if(name && date && id) Api.upsertEvent(id, name, date).then(loadData);
+                    }} className="bg-brand text-black text-sm font-bold px-4 py-2 rounded-lg hover:brightness-110">+ Create</button>
+                </div>
+                {events.map(evt => (
+                    <div key={evt.event_id} className="glass-panel p-4 rounded-xl flex justify-between items-center">
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <h3 className="font-bold">{evt.name}</h3>
+                                <button onClick={() => handleEditEventName(evt.event_id, evt.name)} className="text-xs text-gray-500 hover:text-white">✎</button>
+                            </div>
+                            <p className="text-sm text-gray-500">{evt.event_date} • {evt.photo_count} photos • {getEventSize(evt.event_id)}</p>
+                        </div>
+                        <button onClick={() => { if(confirm("Delete Event? This will remove all photos in it.")) Api.deleteEvent(id!, evt.event_id).then(loadData); }} className="text-red-500 text-sm hover:underline">Delete</button>
+                    </div>
+                ))}
+            </div>
+        )}
+        
+        {activeTab === 'guests' && (
+             <div className="space-y-4 max-w-4xl mx-auto">
+             {Object.entries(groupedLeads).map(([mobile, group], idx) => (
+                 <div key={mobile} className="glass-panel rounded-xl overflow-hidden border border-white/5">
+                     <div onClick={() => setOpenLeadGroup(openLeadGroup === mobile ? null : mobile)} className="p-4 flex items-center justify-between cursor-pointer hover:bg-white/5 transition">
+                         <div className="flex items-center gap-4">
+                             <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-brand/50 bg-black">
+                                 <SafeImage src={getSelfieSrc(group.items[0])} alt="Selfie" className="w-full h-full object-cover" />
+                             </div>
+                             <div><h3 className="font-bold text-lg">{group.name}</h3><div className="text-brand font-mono text-sm">{mobile}</div></div>
+                         </div>
+                         <div className="flex items-center gap-4"><span className="bg-white/10 px-3 py-1 rounded-full text-xs font-bold">{group.items.length} Sessions</span><span className={`transform transition ${openLeadGroup === mobile ? 'rotate-180' : ''}`}>▼</span></div>
+                     </div>
+                     {openLeadGroup === mobile && (
+                         <div className="bg-black/40 border-t border-white/10 p-4 space-y-3">
+                             {group.items.map((item, i) => (
+                                 <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5">
+                                     <div className="flex items-center gap-4">
+                                         <div className="w-10 h-10 rounded overflow-hidden bg-black border border-white/10"><SafeImage src={getSelfieSrc(item)} alt="Selfie" className="w-full h-full object-cover" /></div>
+                                         <div className="text-sm"><div className="text-gray-400">Time: <span className="text-white">{new Date(item.timestamp).toLocaleString()}</span></div><div className="text-green-400 font-bold">{item.match_count} Photos Found</div></div>
+                                     </div>
+                                     <button className="text-xs border border-white/20 px-3 py-1 rounded hover:bg-white/10" onClick={() => openSelfieWindow(getSelfieSrc(item))}>View Selfie</button>
+                                 </div>
+                             ))}
+                         </div>
+                     )}
+                 </div>
+             ))}
+             {Object.keys(groupedLeads).length === 0 && <div className="text-center py-20 text-gray-500">No guest leads yet.</div>}
+         </div>
+        )}
+
+        {/* Upload, Links, Settings Tabs (Same as before) */}
         {activeTab === 'upload' && (
             <div className="glass-panel p-8 rounded-2xl max-w-2xl mx-auto text-center space-y-8">
                 <div>
@@ -519,31 +618,7 @@ const CollectionManager = () => {
                 </div>
             </div>
         )}
-
-        {activeTab === 'settings' && (
-            <div className="glass-panel p-8 rounded-2xl max-w-2xl mx-auto">
-                <h2 className="text-2xl font-bold mb-6">Customize Branding</h2>
-                <div className="space-y-6">
-                    <div>
-                        <label className="block text-sm text-gray-400 mb-2">Brand Accent Color</label>
-                        <div className="flex gap-4 items-center">
-                            <input type="color" value={theme.primary_color} onChange={e => setTheme({...theme, primary_color: e.target.value})} className="h-10 w-20 bg-transparent border-none cursor-pointer" />
-                            <input type="text" value={theme.primary_color} onChange={e => setTheme({...theme, primary_color: e.target.value})} className="bg-black border border-white/10 p-2 rounded text-white flex-1" />
-                        </div>
-                    </div>
-                    <div>
-                        <label className="block text-sm text-gray-400 mb-2">Logo URL</label>
-                        <input type="text" placeholder="https://..." value={theme.logo_url} onChange={e => setTheme({...theme, logo_url: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-lg text-white" />
-                    </div>
-                    <div>
-                        <label className="block text-sm text-gray-400 mb-2">Background Image URL</label>
-                        <input type="text" placeholder="https://..." value={theme.background_image} onChange={e => setTheme({...theme, background_image: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-lg text-white" />
-                    </div>
-                    <button onClick={saveSettings} className="w-full bg-brand text-black font-bold py-3 rounded-lg hover:brightness-110 mt-4">Save Customization</button>
-                </div>
-            </div>
-        )}
-
+        
         {activeTab === 'links' && (
             <div className="grid md:grid-cols-2 gap-8 glass-panel p-8 rounded-2xl">
                 <div>
@@ -577,57 +652,28 @@ const CollectionManager = () => {
             </div>
         )}
         
-        {activeTab === 'events' && (
-            <div className="space-y-4">
-                <div className="flex justify-between items-center glass-panel p-4 rounded-xl">
-                    <h2 className="text-lg font-bold">Event List</h2>
-                    <button onClick={() => {
-                        const name = prompt("Name:"); const date = prompt("Date:");
-                        if(name && date && id) Api.upsertEvent(id, name, date).then(loadData);
-                    }} className="bg-brand text-black text-sm font-bold px-4 py-2 rounded-lg hover:brightness-110">+ Create</button>
-                </div>
-                {events.map(evt => (
-                    <div key={evt.event_id} className="glass-panel p-4 rounded-xl flex justify-between items-center">
-                        <div>
-                            <h3 className="font-bold">{evt.name}</h3>
-                            <p className="text-sm text-gray-500">{evt.event_date} • {evt.photo_count} photos</p>
+        {activeTab === 'settings' && (
+            <div className="glass-panel p-8 rounded-2xl max-w-2xl mx-auto">
+                <h2 className="text-2xl font-bold mb-6">Customize Branding</h2>
+                <div className="space-y-6">
+                    <div>
+                        <label className="block text-sm text-gray-400 mb-2">Brand Accent Color</label>
+                        <div className="flex gap-4 items-center">
+                            <input type="color" value={theme.primary_color} onChange={e => setTheme({...theme, primary_color: e.target.value})} className="h-10 w-20 bg-transparent border-none cursor-pointer" />
+                            <input type="text" value={theme.primary_color} onChange={e => setTheme({...theme, primary_color: e.target.value})} className="bg-black border border-white/10 p-2 rounded text-white flex-1" />
                         </div>
-                        <button onClick={() => { if(confirm("Delete?")) Api.deleteEvent(id!, evt.event_id).then(loadData); }} className="text-red-500 text-sm hover:underline">Delete</button>
                     </div>
-                ))}
+                    <div>
+                        <label className="block text-sm text-gray-400 mb-2">Logo URL</label>
+                        <input type="text" placeholder="https://..." value={theme.logo_url} onChange={e => setTheme({...theme, logo_url: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-lg text-white" />
+                    </div>
+                    <div>
+                        <label className="block text-sm text-gray-400 mb-2">Background Image URL</label>
+                        <input type="text" placeholder="https://..." value={theme.background_image} onChange={e => setTheme({...theme, background_image: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-lg text-white" />
+                    </div>
+                    <button onClick={saveSettings} className="w-full bg-brand text-black font-bold py-3 rounded-lg hover:brightness-110 mt-4">Save Customization</button>
+                </div>
             </div>
-        )}
-        
-        {activeTab === 'guests' && (
-             <div className="space-y-4 max-w-4xl mx-auto">
-             {Object.entries(groupedLeads).map(([mobile, group], idx) => (
-                 <div key={mobile} className="glass-panel rounded-xl overflow-hidden border border-white/5">
-                     <div onClick={() => setOpenLeadGroup(openLeadGroup === mobile ? null : mobile)} className="p-4 flex items-center justify-between cursor-pointer hover:bg-white/5 transition">
-                         <div className="flex items-center gap-4">
-                             <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-brand/50 bg-black">
-                                 <SafeImage src={getSelfieSrc(group.items[0])} alt="Selfie" className="w-full h-full object-cover" />
-                             </div>
-                             <div><h3 className="font-bold text-lg">{group.name}</h3><div className="text-brand font-mono text-sm">{mobile}</div></div>
-                         </div>
-                         <div className="flex items-center gap-4"><span className="bg-white/10 px-3 py-1 rounded-full text-xs font-bold">{group.items.length} Sessions</span><span className={`transform transition ${openLeadGroup === mobile ? 'rotate-180' : ''}`}>▼</span></div>
-                     </div>
-                     {openLeadGroup === mobile && (
-                         <div className="bg-black/40 border-t border-white/10 p-4 space-y-3">
-                             {group.items.map((item, i) => (
-                                 <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5">
-                                     <div className="flex items-center gap-4">
-                                         <div className="w-10 h-10 rounded overflow-hidden bg-black border border-white/10"><SafeImage src={getSelfieSrc(item)} alt="Selfie" className="w-full h-full object-cover" /></div>
-                                         <div className="text-sm"><div className="text-gray-400">Time: <span className="text-white">{new Date(item.timestamp).toLocaleString()}</span></div><div className="text-green-400 font-bold">{item.match_count} Photos Found</div></div>
-                                     </div>
-                                     <button className="text-xs border border-white/20 px-3 py-1 rounded hover:bg-white/10" onClick={() => openSelfieWindow(getSelfieSrc(item))}>View Selfie</button>
-                                 </div>
-                             ))}
-                         </div>
-                     )}
-                 </div>
-             ))}
-             {Object.keys(groupedLeads).length === 0 && <div className="text-center py-20 text-gray-500">No guest leads yet.</div>}
-         </div>
         )}
 
       </div>

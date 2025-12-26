@@ -14,23 +14,19 @@ const QuickUpload = () => {
     
     useEffect(() => {
         if(collectionId) {
-            // NOTE: Using a public-friendly way to fetch events. 
-            // If main API requires auth, this will fail without backend adjustment.
-            // Assuming for now the 'getEvents' logic is permissive or we reuse logic.
-            // In a real scenario, we'd use 'getPublicCollectionInfo' if implemented.
-            // Here we assume standard flow but handle 401/403 gracefully.
             loadEvents();
         }
     }, [collectionId]);
 
     const loadEvents = async () => {
         try {
-            // Try fetching events. If 403, backend needs 'Public' flag enabled.
-            const res = await Api.getEvents(collectionId!); 
+            // Updated to pass true for public access
+            const res = await Api.getEvents(collectionId!, true); 
             setEvents(res.events || []);
             setStatus("Ready to upload");
         } catch(e) {
-            setStatus("Error: Link invalid or expired (Auth required).");
+            console.error(e);
+            setStatus("Error: Link invalid or expired.");
         }
     };
 

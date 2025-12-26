@@ -3,12 +3,15 @@ import { AccountStatus, Collection, EventData, FaceGroup, Lead, Photo, Photograp
 // AWS API Gateway URL
 const API_BASE = "https://oel3deh9q3.execute-api.ap-south-1.amazonaws.com/prod";
 
-const getHeaders = () => {
-  const token = localStorage.getItem('idToken');
-  return {
-    'Authorization': `Bearer ${token}`,
+const getHeaders = (isPublic = false) => {
+  const headers: any = {
     'Content-Type': 'application/json'
   };
+  const token = localStorage.getItem('idToken');
+  if (token && !isPublic) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
 };
 
 export const Api = {
@@ -26,7 +29,6 @@ export const Api = {
     return res.json();
   },
 
-  // Updated to accept custom_theme
   upsertCollection: async (name: string, collection_id?: string, custom_theme?: any) => {
     const res = await fetch(`${API_BASE}/upsert-collection`, {
       method: 'POST',
@@ -48,12 +50,14 @@ export const Api = {
   },
 
   // --- Events ---
-  getEvents: async (collection_id: string): Promise<{ events: EventData[] }> => {
+  // Updated: Accepts isPublic to bypass auth header for Quick Upload
+  getEvents: async (collection_id: string, isPublic = false): Promise<{ events: EventData[] }> => {
     const res = await fetch(`${API_BASE}/get-events`, {
       method: 'POST',
-      headers: getHeaders(),
+      headers: getHeaders(isPublic),
       body: JSON.stringify({ collection_id })
     });
+    if (!res.ok) throw new Error("Failed to fetch events");
     return res.json();
   },
 
@@ -88,20 +92,14 @@ export const Api = {
     return res.json();
   },
 
-  // ADDED: Delete Single Photo
+  // FIXED: Delete Photo
   deletePhoto: async (collection_id: string, photo_id: string) => {
     const res = await fetch(`${API_BASE}/delete-photo`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ collection_id, photo_id })
     });
-    // Some backends might return 200 even on logical fail, check body if needed
-    // But usually standard check is enough
-    if (!res.ok) {
-        // Fallback: If specific endpoint doesn't exist, try the generic delete endpoint if available
-        // But assuming /delete-photo exists as per flow description
-        console.warn("Delete photo failed");
-    }
+    if (!res.ok) throw new Error("Delete failed");
     return res.json();
   },
 
@@ -118,7 +116,7 @@ export const Api = {
   generatePublicUploadUrls: async (collection_id: string, event_id: string, files: { name: string, type: string, size?: number }[]) => {
     const res = await fetch(`${API_BASE}/generate-upload-urls`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' }, // No Auth
       body: JSON.stringify({ collection_id, event_id, files, is_public: true }) 
     });
     if (!res.ok) throw new Error("Failed to generate upload URLs");
@@ -203,8 +201,6 @@ export const Api = {
 
   // --- CLIENT SELECTION ---
   getClientGallery: async (linkId: string, pin: string) => {
-      // FIX: Added 'selfieImage' dummy string. 
-      // The backend validates this field exists before checking 'mode'.
       const res = await fetch(`${API_BASE}/search`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

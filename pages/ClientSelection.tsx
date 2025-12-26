@@ -22,16 +22,20 @@ const ClientSelection = () => {
     setLoading(true);
     try {
       // NOTE: Using getClientGallery which calls 'search' endpoint with mode='client_selection'
-      // Your backend 'search' lambda should see this mode and return ALL photos for the linkId if PIN matches
       const res = await Api.getClientGallery(linkId, pin);
       
-      // Fallback: If backend returns 'matches', 'photos', or 'items'
-      const items = res.matches || res.photos || res.items || [];
+      // IMPROVED: Robust checking for data in response
+      let items: Photo[] = [];
+      if (Array.isArray(res)) items = res;
+      else if (res.matches && Array.isArray(res.matches)) items = res.matches;
+      else if (res.photos && Array.isArray(res.photos)) items = res.photos;
+      else if (res.items && Array.isArray(res.items)) items = res.items;
+      
       if (items.length > 0) {
         setPhotos(items);
         setStep('gallery');
       } else {
-        alert("No photos found or Invalid PIN");
+        alert("No photos found in this collection or Invalid PIN");
       }
     } catch (e) {
       console.error(e);
