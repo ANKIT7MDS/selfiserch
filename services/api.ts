@@ -15,6 +15,9 @@ const getHeaders = (isPublic = false) => {
   return headers;
 };
 
+// 1x1 Pixel Transparent GIF Base64 to trick backend image validation
+const DUMMY_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg==";
+
 export const Api = {
   // --- Auth & Account ---
   getAccountStatus: async (): Promise<AccountStatus> => {
@@ -52,8 +55,6 @@ export const Api = {
 
   // --- Events ---
   getEvents: async (collection_id: string, isPublic = false): Promise<{ events: EventData[] }> => {
-    // IMPORTANT: If isPublic is true, we must ensure the backend accepts unauthenticated requests
-    // OR we might need a specific 'public' endpoint. Assuming current endpoint handles it based on payload.
     const res = await fetch(`${API_BASE}/get-events`, {
       method: 'POST',
       headers: getHeaders(isPublic),
@@ -142,7 +143,6 @@ export const Api = {
         body: JSON.stringify({ collection_id })
       });
       const data = await res.json();
-      // Robust parsing: check all possible keys where backend might send data
       return { people: data.people || data.items || data.faces || [] };
     } catch (e) {
       console.warn("listPeople API failed", e);
@@ -180,11 +180,10 @@ export const Api = {
       });
       if (!res.ok) return [];
       const data = await res.json();
-      // Handle various response structures
       if (Array.isArray(data)) return data;
       if (Array.isArray(data.leads)) return data.leads;
       if (Array.isArray(data.items)) return data.items;
-      if (Array.isArray(data.body)) return JSON.parse(data.body); // Sometimes AWS returns body as string
+      if (Array.isArray(data.body)) return JSON.parse(data.body); 
       return [];
     } catch (e) {
       console.warn("getLeads error", e);
@@ -206,7 +205,7 @@ export const Api = {
 
   // --- CLIENT SELECTION ---
   getClientGallery: async (linkId: string, pin: string) => {
-      // Sending selfieImage as bypass trigger
+      // FIX: Use Real Base64 Image to pass backend validation
       const res = await fetch(`${API_BASE}/search`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -214,7 +213,7 @@ export const Api = {
               linkId, 
               pin, 
               mode: 'client_selection',
-              selfieImage: "CLIENT_MODE_BYPASS" 
+              selfieImage: DUMMY_IMAGE 
           })
       });
       

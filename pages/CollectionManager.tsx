@@ -23,11 +23,8 @@ const getFaceStyle = (url: string, bbox: any) => {
     return style;
 };
 
-// Robust SafeImage component for broken selfies
 const SafeImage = ({ src, alt, className }: { src: string, alt: string, className?: string }) => {
     const [error, setError] = useState(false);
-    
-    // Check if src is valid
     if (error || !src || src === 'undefined' || src === 'null' || src.length < 5) {
         return (
             <div className={`${className} bg-gray-800 flex items-center justify-center border border-white/10`}>
@@ -35,7 +32,6 @@ const SafeImage = ({ src, alt, className }: { src: string, alt: string, classNam
             </div>
         );
     }
-
     return <img src={src} alt={alt} className={className} onError={() => setError(true)} />;
 };
 
@@ -60,16 +56,11 @@ const CollectionManager = () => {
       header_text_color: '#ffffff'
   });
   
-  // Selection Mode State
   const [clientSelections, setClientSelections] = useState<Set<string>>(new Set());
-  
-  // Filtering & Selection
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
   const [filterFaceId, setFilterFaceId] = useState<string | null>(null);
   const [filterEventId, setFilterEventId] = useState<string>('All');
   const [isDeleting, setIsDeleting] = useState(false);
-  
-  // Lead Accordion State
   const [openLeadGroup, setOpenLeadGroup] = useState<string | null>(null);
 
   // Upload State
@@ -78,8 +69,6 @@ const CollectionManager = () => {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState("");
-  
-  // Quick Upload Link
   const [quickUploadLink, setQuickUploadLink] = useState("");
 
   // Links State
@@ -87,8 +76,6 @@ const CollectionManager = () => {
   const [linkPassword, setLinkPassword] = useState("");
   const [generatedLink, setGeneratedLink] = useState("");
   const [selectedLinkEvents, setSelectedLinkEvents] = useState<string[]>([]);
-  
-  // Client Link Generation
   const [clientLink, setClientLink] = useState("");
 
   useEffect(() => {
@@ -124,46 +111,34 @@ const CollectionManager = () => {
           }
       }
       
-      // --- FIXED: Face Name Persistence Logic ---
-      // 1. Calculate raw faces from new photos
+      // --- FACE LOGIC START ---
       const calculatedFaces = buildFacesFromPhotos(loadedPhotos);
-      
       try {
-        // 2. Fetch SAVED names from server
         const savedData = await Api.listPeople(id);
         const savedPeople = savedData.people || [];
-        
-        // 3. Create a Map for O(1) lookup
         const nameMap = new Map();
         savedPeople.forEach((p: any) => {
-             // Map both FaceId and face_id to cover backend inconsistencies
              if (p.FaceId) nameMap.set(p.FaceId, p.FaceName);
              if (p.face_id) nameMap.set(p.face_id, p.FaceName || p.name);
         });
 
-        // 4. Merge: If saved name exists, use it. Else use "Unknown"
+        // Merge: Prioritize saved names
         const mergedFaces = calculatedFaces.map(cF => {
             const savedName = nameMap.get(cF.FaceId);
-            return {
-                ...cF,
-                FaceName: savedName || cF.FaceName || "Unknown"
-            };
+            return { ...cF, FaceName: savedName || cF.FaceName || "Unknown" };
         });
-        
         setFaces(mergedFaces);
       } catch(e) {
           console.warn("Could not load saved faces", e);
           setFaces(calculatedFaces);
       }
+      // --- FACE LOGIC END ---
 
-      // --- FIXED: Leads Data ---
       try {
         const leadData = await Api.getLeads(id);
-        // Filter out client selection from regular leads
         const regularLeads = leadData.filter(l => l.name !== "CLIENT_SELECTION");
         setLeads(regularLeads);
         
-        // Check for client selection
         const selectionLead = leadData.find(l => l.name === "CLIENT_SELECTION");
         if(selectionLead && selectionLead.selfie_image) {
             try {
@@ -184,8 +159,6 @@ const CollectionManager = () => {
       const map = new Map<string, FaceGroup>();
       allPhotos.forEach(photo => {
           const sampleUrl = photo.thumbnail_url || photo.url;
-          
-          // Handle 'faces' array (Rekognition details)
           const faceObjs = photo.faces || [];
           faceObjs.forEach((f: any) => {
               const fid = f.FaceId || f.face_id;
@@ -198,17 +171,6 @@ const CollectionManager = () => {
                   if(!existing.BoundingBox && f.BoundingBox) existing.BoundingBox = f.BoundingBox;
               }
           });
-          
-          // Handle 'face_ids' array (Simple IDs)
-          const faceIds = photo.face_ids || [];
-          faceIds.forEach(fid => {
-              if(!fid) return;
-              if(!map.has(fid)) {
-                  map.set(fid, { FaceId: fid, FaceName: "Unknown", photoCount: 1, sampleUrl, BoundingBox: null }); 
-              } else {
-                  map.get(fid)!.photoCount++;
-              }
-          });
       });
       return Array.from(map.values()).sort((a,b) => b.photoCount - a.photoCount);
   };
@@ -217,16 +179,12 @@ const CollectionManager = () => {
     e.stopPropagation();
     const newName = prompt("Enter Name for this person:", currentName === "Unknown" ? "" : currentName);
     if (newName && id) {
-        // Optimistic UI Update
         setFaces(prev => prev.map(f => f.FaceId === faceId ? { ...f, FaceName: newName } : f));
-        
         try {
             await Api.saveFaceName(id, faceId, newName);
-            // We do NOT reload data here to prevent UI flicker. 
-            // The state is already correct.
         } catch (error) { 
             alert("Failed to save name on server");
-            loadData(); // Revert on failure
+            loadData();
         }
     }
   };
@@ -257,7 +215,6 @@ const CollectionManager = () => {
     if (filterFaceId) {
         res = res.filter(p => {
              if(p.faces && p.faces.some((f: any) => (f.FaceId === filterFaceId || f.face_id === filterFaceId))) return true;
-             if(p.face_ids && p.face_ids.includes(filterFaceId)) return true;
              return false;
         });
     }
@@ -282,7 +239,6 @@ const CollectionManager = () => {
       if(!id) return;
       if(selectedPhotos.size === 0) return alert("Select photos to delete");
       if(!confirm(`Are you sure you want to delete ${selectedPhotos.size} photos? This cannot be undone.`)) return;
-
       setIsDeleting(true);
       try {
           const ids = Array.from(selectedPhotos);
@@ -293,7 +249,6 @@ const CollectionManager = () => {
           setSelectedPhotos(new Set());
           loadData();
       } catch(e) {
-          console.error(e);
           alert("Failed to delete some photos.");
       } finally {
           setIsDeleting(false);
@@ -337,15 +292,16 @@ const CollectionManager = () => {
       setFiles([]);
       loadData(); 
     } catch (e) {
-      console.error(e);
       setUploadStatus("Error occurred.");
     } finally {
       setUploading(false);
     }
   };
   
+  // FIX: Generate Link with Event ID pre-selected
   const generateQuickUploadLink = () => {
-      const url = `${window.location.origin}/#/quick-upload/${id}`;
+      if (!selectedEventId) return alert("Please select an event first!");
+      const url = `${window.location.origin}/#/quick-upload/${id}?eventId=${selectedEventId}`;
       setQuickUploadLink(url);
   };
 
@@ -353,11 +309,9 @@ const CollectionManager = () => {
     if (!id || selectedLinkEvents.length === 0) return alert("Select at least one event");
     try {
         const res = await Api.generateLink({ collection_id: id, event_ids: selectedLinkEvents, expiry_hours: expiryHours, password: linkPassword });
-        // Clean URL generation
         const cleanUrl = res.searchUrl.replace('linkId=', ''); 
         const linkIdOnly = cleanUrl.includes('?') ? cleanUrl.split('?')[1] : cleanUrl;
         const finalId = res.searchUrl.split('linkId=')[1] || linkIdOnly;
-        
         const guestUrl = `${window.location.origin}/#/?linkId=${finalId}`;
         setGeneratedLink(guestUrl);
     } catch (e) { alert("Failed to generate link"); }
@@ -631,27 +585,30 @@ const CollectionManager = () => {
                 </div>
                 <div className="border-t border-white/10 pt-8">
                     <h3 className="text-lg font-bold mb-4">🔗 Shareable Assistant Link</h3>
-                    <p className="text-sm text-gray-400 mb-4">Share this link with your team to upload photos without logging in.</p>
+                    <p className="text-sm text-gray-400 mb-4">Select an event above, then generate a link for your team.</p>
+                    
                     {!quickUploadLink ? (
-                        <button onClick={generateQuickUploadLink} className="bg-white/10 border border-white/20 text-white font-bold py-2 px-6 rounded-lg hover:bg-white/20">
-                            Generate Link
+                        <button onClick={generateQuickUploadLink} className={`border border-white/20 text-white font-bold py-2 px-6 rounded-lg hover:bg-white/20 ${!selectedEventId ? 'opacity-50 cursor-not-allowed bg-transparent' : 'bg-white/10'}`} disabled={!selectedEventId}>
+                            {selectedEventId ? 'Generate Link' : 'Select Event First'}
                         </button>
                     ) : (
                         <div className="bg-black/50 p-4 rounded-lg flex items-center justify-between border border-brand/30">
                             <code className="text-brand text-xs break-all text-left">{quickUploadLink}</code>
-                            <button onClick={() => navigator.clipboard.writeText(quickUploadLink)} className="ml-4 bg-brand text-black px-3 py-1 rounded text-xs font-bold">Copy</button>
+                            <div className="flex gap-2">
+                                <button onClick={() => setQuickUploadLink("")} className="ml-2 bg-white/10 text-white px-3 py-1 rounded text-xs">Reset</button>
+                                <button onClick={() => navigator.clipboard.writeText(quickUploadLink)} className="ml-2 bg-brand text-black px-3 py-1 rounded text-xs font-bold">Copy</button>
+                            </div>
                         </div>
                     )}
                 </div>
             </div>
         )}
         
-        {/* LINKS TAB (FIXED VISIBILITY) */}
+        {/* LINKS TAB */}
         {activeTab === 'links' && (
             <div className="grid md:grid-cols-2 gap-8 glass-panel p-8 rounded-2xl">
                 <div>
                     <h3 className="font-bold mb-4 text-lg">Generate Search Link</h3>
-                    {/* Removed fixed height 'h-48' to ensure content is visible */}
                     <div className="bg-black/50 border border-white/10 rounded-lg p-3 max-h-96 overflow-y-auto mb-4">
                         {events.length > 0 ? events.map(e => (
                             <label key={e.event_id} className="flex items-center gap-2 p-2 hover:bg-white/5 rounded cursor-pointer">
