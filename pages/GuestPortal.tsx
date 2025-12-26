@@ -21,7 +21,10 @@ const GuestPortal = () => {
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
   const [activeFilter, setActiveFilter] = useState<string>('All');
   const [searchText, setSearchText] = useState("");
+  
+  // Lightbox & Slideshow State
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [isSlideshow, setIsSlideshow] = useState(false);
 
   // Extract unique tags from photos
   const allTags = ['All', ...Array.from(new Set(matches.flatMap(p => p.ai_tags || [])))];
@@ -104,14 +107,6 @@ const GuestPortal = () => {
     setSelectedPhotos(newSet);
   };
 
-  const selectAll = () => {
-    if (selectedPhotos.size === filteredPhotos.length) {
-      setSelectedPhotos(new Set());
-    } else {
-      setSelectedPhotos(new Set(filteredPhotos.map(p => p.photo_id)));
-    }
-  };
-
   const handleDownloadSelected = () => {
     const photosToDownload = matches.filter(p => selectedPhotos.has(p.photo_id));
     if (photosToDownload.length === 0) return alert("Select photos first");
@@ -147,6 +142,31 @@ const GuestPortal = () => {
                       (p.ai_tags && p.ai_tags.some(t => t.toLowerCase().includes(searchText.toLowerCase())));
     return tagMatch && textMatch;
   });
+
+  // SLIDESHOW LOGIC
+  useEffect(() => {
+    let interval: any;
+    if (isSlideshow && filteredPhotos.length > 0) {
+      // Open lightbox if not open
+      if (lightboxIndex === null) setLightboxIndex(0);
+      
+      interval = setInterval(() => {
+        setLightboxIndex(prev => {
+           if (prev === null) return 0;
+           return (prev + 1) % filteredPhotos.length;
+        });
+      }, 3000); // 3 seconds per slide
+    }
+    return () => clearInterval(interval);
+  }, [isSlideshow, filteredPhotos.length]);
+
+  const toggleSlideshow = () => {
+      if (isSlideshow) {
+          setIsSlideshow(false);
+      } else {
+          setIsSlideshow(true);
+      }
+  };
 
   if (!linkId) return <div className="h-screen flex items-center justify-center bg-black text-white font-bold text-xl">Invalid Link 🚫</div>;
 
@@ -320,6 +340,9 @@ const GuestPortal = () => {
                     </div>
                     
                     <div className="flex gap-2 w-full md:w-auto">
+                        <button onClick={toggleSlideshow} className={`px-4 py-2 rounded-xl font-bold transition border border-white/10 ${isSlideshow ? 'bg-red-500/20 text-red-400' : 'bg-white/5 hover:bg-white/10'}`}>
+                            {isSlideshow ? '⏹ Stop' : '▶ Slideshow'}
+                        </button>
                         <button onClick={() => handleShare()} className="flex-1 bg-[#25D366] text-black px-6 py-2 rounded-xl font-bold hover:brightness-110 transition flex items-center justify-center gap-2 shadow-[0_4px_15px_rgba(37,211,102,0.2)]">
                             <span className="text-xl">💬</span> Share
                         </button>
@@ -364,7 +387,7 @@ const GuestPortal = () => {
                   
                   {/* Hover Overlay */}
                   <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition duration-300 bg-black/40 backdrop-blur-[2px]">
-                       <button onClick={(e) => { e.stopPropagation(); setLightboxIndex(i); }} className="bg-white/10 hover:bg-white/30 backdrop-blur-md p-3 rounded-full text-white border border-white/20 transition-all hover:scale-110">
+                       <button onClick={(e) => { e.stopPropagation(); setLightboxIndex(i); setIsSlideshow(false); }} className="bg-white/10 hover:bg-white/30 backdrop-blur-md p-3 rounded-full text-white border border-white/20 transition-all hover:scale-110">
                            👁️
                        </button>
                   </div>
@@ -381,25 +404,40 @@ const GuestPortal = () => {
                 </div>
             )}
 
-            {/* Lightbox */}
+            {/* Lightbox / Slideshow Modal */}
             {lightboxIndex !== null && (
                 <div className="fixed inset-0 z-50 bg-black/98 flex items-center justify-center backdrop-blur-2xl animate-fade-in">
-                    <button onClick={() => setLightboxIndex(null)} className="absolute top-6 right-6 w-12 h-12 flex items-center justify-center bg-white/10 rounded-full text-white hover:bg-white/20 transition z-50">&times;</button>
                     
+                    {/* Controls (Hidden in slideshow mode for cleaner look) */}
+                    <button onClick={() => { setLightboxIndex(null); setIsSlideshow(false); }} className="absolute top-6 right-6 w-12 h-12 flex items-center justify-center bg-white/10 rounded-full text-white hover:bg-white/20 transition z-50 hover:scale-110">&times;</button>
+                    
+                    {!isSlideshow && (
                     <button 
                         onClick={() => setLightboxIndex((prev) => (prev! > 0 ? prev! - 1 : filteredPhotos.length - 1))}
-                        className="absolute left-6 text-white text-4xl p-4 hover:scale-110 transition hidden md:block"
+                        className="absolute left-6 text-white text-4xl p-4 hover:scale-110 transition hidden md:block z-50"
                     >
                         &#8249;
                     </button>
+                    )}
 
-                    <div className="w-full h-full p-4 md:p-10 flex flex-col items-center justify-center">
+                    <div className="w-full h-full p-4 md:p-10 flex flex-col items-center justify-center relative">
+                        {/* MAIN IMAGE */}
                         <img 
                             src={filteredPhotos[lightboxIndex].url} 
-                            className="max-h-[85vh] max-w-full object-contain shadow-[0_0_50px_rgba(0,0,0,0.5)] rounded-lg" 
+                            className={`max-h-[85vh] max-w-full object-contain shadow-[0_0_50px_rgba(0,0,0,0.5)] rounded-lg transition-all duration-700 ${isSlideshow ? 'scale-105' : 'scale-100'}`} 
                             alt="Full View" 
                         />
-                        <div className="flex gap-4 mt-6">
+
+                        {/* WATERMARK OVERLAY (FRONTEND HACK) */}
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden opacity-10">
+                             <div className="text-white text-6xl md:text-8xl font-black rotate-[-30deg] whitespace-nowrap select-none">
+                                 EVENTLENS PRO
+                             </div>
+                        </div>
+
+                        {/* Bottom Bar (Hidden in slideshow for immersion) */}
+                        {!isSlideshow && (
+                        <div className="flex gap-4 mt-6 animate-slide-up">
                             <a href={filteredPhotos[lightboxIndex].url} download className="bg-white text-black px-8 py-3 rounded-full font-bold hover:bg-gray-200 transition shadow-lg hover:scale-105">
                                 Download HD
                             </a>
@@ -407,14 +445,24 @@ const GuestPortal = () => {
                                 Share
                             </button>
                         </div>
+                        )}
+
+                        {/* Slideshow Indicator */}
+                        {isSlideshow && (
+                            <div className="absolute bottom-10 bg-black/50 text-white px-4 py-2 rounded-full text-xs font-bold backdrop-blur border border-white/10">
+                                Playing Slideshow • {lightboxIndex + 1} / {filteredPhotos.length}
+                            </div>
+                        )}
                     </div>
 
+                    {!isSlideshow && (
                     <button 
                         onClick={() => setLightboxIndex((prev) => (prev! < filteredPhotos.length - 1 ? prev! + 1 : 0))}
-                        className="absolute right-6 text-white text-4xl p-4 hover:scale-110 transition hidden md:block"
+                        className="absolute right-6 text-white text-4xl p-4 hover:scale-110 transition hidden md:block z-50"
                     >
                         &#8250;
                     </button>
+                    )}
                 </div>
             )}
           </div>

@@ -13,6 +13,9 @@ const ClientSelection = () => {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
+  
+  // Lightbox
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   const handleLogin = async () => {
     if (!linkId || !pin) return alert("Please enter PIN");
@@ -112,27 +115,61 @@ const ClientSelection = () => {
 
       {/* Grid */}
       <div className="p-2 grid grid-cols-3 md:grid-cols-5 lg:grid-cols-8 gap-1">
-        {photos.map(photo => {
+        {photos.map((photo, i) => {
           const isSelected = selectedIds.has(photo.photo_id);
           return (
             <div 
               key={photo.photo_id} 
-              onClick={() => toggleSelection(photo.photo_id)}
               className={`relative aspect-square cursor-pointer transition ${isSelected ? 'opacity-100 scale-95 z-10' : 'opacity-100'}`}
             >
               <img 
                 src={photo.thumbnail_url || photo.url} 
                 loading="lazy" 
+                onClick={() => setLightboxIndex(i)} // Open Lightbox
                 className={`w-full h-full object-cover rounded-md ${isSelected ? 'ring-4 ring-brand' : ''}`} 
               />
               
-              <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center border transition ${isSelected ? 'bg-brand border-brand' : 'bg-black/30 border-white/50'}`}>
-                {isSelected && <span className="text-black text-xs font-bold">✓</span>}
+              {/* Select Button Overlay */}
+              <div 
+                  onClick={(e) => { e.stopPropagation(); toggleSelection(photo.photo_id); }}
+                  className={`absolute top-2 right-2 w-8 h-8 rounded-full flex items-center justify-center border shadow-lg cursor-pointer transition active:scale-90 ${isSelected ? 'bg-brand border-brand' : 'bg-black/50 border-white/50 hover:bg-black/80'}`}
+              >
+                <span className={`text-sm font-bold ${isSelected ? 'text-black' : 'text-white'}`}>{isSelected ? '✓' : '+'}</span>
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* Lightbox Modal */}
+      {lightboxIndex !== null && (
+          <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center backdrop-blur-xl animate-fade-in">
+              <button onClick={() => setLightboxIndex(null)} className="absolute top-6 right-6 w-12 h-12 flex items-center justify-center bg-white/10 rounded-full text-white hover:bg-white/20 transition z-50">&times;</button>
+              
+              <button onClick={() => setLightboxIndex(p => p! > 0 ? p! - 1 : photos.length - 1)} className="absolute left-4 text-white text-4xl p-4 z-50">&#8249;</button>
+
+              <div className="relative max-w-full max-h-full p-4 flex flex-col items-center">
+                  <img src={photos[lightboxIndex].url} className="max-h-[80vh] max-w-full object-contain rounded-lg shadow-2xl" alt="Preview" />
+                  
+                  {/* FRONTEND WATERMARK */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-10">
+                       <div className="text-white text-6xl font-black rotate-[-30deg] select-none">EVENTLENS</div>
+                  </div>
+
+                  {/* Action Bar */}
+                  <div className="mt-6 flex gap-4">
+                      <button 
+                          onClick={() => toggleSelection(photos[lightboxIndex!].photo_id)}
+                          className={`px-8 py-3 rounded-full font-bold transition shadow-lg ${selectedIds.has(photos[lightboxIndex!].photo_id) ? 'bg-brand text-black' : 'bg-white text-black hover:bg-gray-200'}`}
+                      >
+                          {selectedIds.has(photos[lightboxIndex!].photo_id) ? '✓ Selected' : 'Select Photo'}
+                      </button>
+                  </div>
+              </div>
+
+              <button onClick={() => setLightboxIndex(p => p! < photos.length - 1 ? p! + 1 : 0)} className="absolute right-4 text-white text-4xl p-4 z-50">&#8250;</button>
+          </div>
+      )}
     </div>
   );
 };
