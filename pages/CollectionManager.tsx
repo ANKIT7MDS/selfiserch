@@ -26,7 +26,7 @@ const getFaceStyle = (url: string, bbox: any) => {
 const SafeImage = ({ src, alt, className }: { src: string, alt: string, className?: string }) => {
     const [error, setError] = useState(false);
     
-    if (error || !src || src === 'undefined' || src === 'null') {
+    if (error || !src || src === 'undefined' || src === 'null' || src === "") {
         return (
             <div className={`${className} bg-gray-800 flex items-center justify-center border border-white/10`}>
                 <span className="text-[10px] text-gray-500">No Img</span>
@@ -336,9 +336,18 @@ const CollectionManager = () => {
     if (!id || selectedLinkEvents.length === 0) return alert("Select at least one event");
     try {
         const res = await Api.generateLink({ collection_id: id, event_ids: selectedLinkEvents, expiry_hours: expiryHours, password: linkPassword });
-        const cleanUrl = res.searchUrl.replace('linkId=', ''); 
-        const linkIdOnly = cleanUrl.includes('?') ? cleanUrl.split('?')[1] : cleanUrl;
-        const finalId = res.searchUrl.split('linkId=')[1] || linkIdOnly;
+        
+        // Robust ID Extraction Logic
+        let finalId = "";
+        if (res.searchUrl && res.searchUrl.includes("linkId=")) {
+             finalId = res.searchUrl.split("linkId=")[1].split("&")[0];
+        } else if (res.searchUrl) {
+             // Fallback: take the last segment if URL structure varies
+             finalId = res.searchUrl.split("/").pop() || "";
+        }
+        
+        if (!finalId) throw new Error("Could not parse Link ID");
+
         const guestUrl = `${window.location.origin}/#/?linkId=${finalId}`;
         setGeneratedLink(guestUrl);
     } catch (e) { alert("Failed to generate link"); }
@@ -350,7 +359,17 @@ const CollectionManager = () => {
             const allEventIds = events.map(e => e.event_id);
             if(allEventIds.length === 0) return alert("No events to link");
             const res = await Api.generateLink({ collection_id: id, event_ids: allEventIds, expiry_hours: 24 * 30, password: linkPassword }); 
-            const lid = res.searchUrl.split('linkId=')[1];
+            
+            // Robust ID Extraction Logic
+            let lid = "";
+            if (res.searchUrl && res.searchUrl.includes("linkId=")) {
+                lid = res.searchUrl.split("linkId=")[1].split("&")[0];
+            } else if (res.searchUrl) {
+                lid = res.searchUrl.split("/").pop() || "";
+            }
+
+            if (!lid) throw new Error("Could not parse Link ID");
+
             const url = `${window.location.origin}/#/client-select?linkId=${lid}`;
             setClientLink(url);
        } catch(e) { alert("Error generating client link"); }
@@ -541,46 +560,73 @@ const CollectionManager = () => {
             </div>
         )}
         
-        {/* GUESTS TAB - NEW FLATTENED LIST */}
+        {/* GUESTS TAB - IMPROVED DISPLAY */}
         {activeTab === 'guests' && (
              <div className="space-y-4 max-w-5xl mx-auto">
                  <div className="glass-panel p-6 rounded-2xl">
-                     <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                         <span>👥</span> Guest Activity Log
-                     </h2>
+                     <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-xl font-bold flex items-center gap-2">
+                            <span>👥</span> Guest Activity Log
+                        </h2>
+                        <div className="text-sm text-gray-400">Total Leads: {leads.length}</div>
+                     </div>
+                     
                      {leads.length === 0 ? (
                          <div className="text-center py-12 text-gray-500 bg-white/5 rounded-xl border border-dashed border-gray-700">
-                             No guest activity found yet.
+                             <p className="mb-2 text-2xl">📭</p>
+                             <p>No guest searches recorded yet.</p>
+                             <p className="text-xs mt-2 text-gray-600">Share your Search Link to start getting leads.</p>
                          </div>
                      ) : (
                          <div className="grid gap-3">
-                             {leads.map((lead, idx) => (
-                                 <div key={idx} className="bg-black/40 border border-white/10 p-4 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                             {leads.map((lead, idx) => {
+                                 // Safely Parse Date
+                                 let timeString = 'Unknown Time';
+                                 try {
+                                    if(lead.timestamp) timeString = new Date(lead.timestamp).toLocaleString();
+                                 } catch(e) {}
+
+                                 const selfieSrc = getSelfieSrc(lead);
+                                 
+                                 return (
+                                 <div key={idx} className="bg-black/40 border border-white/10 p-4 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:border-brand/30 transition">
                                      <div className="flex items-center gap-4 w-full md:w-auto">
-                                         <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-900 border border-white/10 shrink-0">
-                                             <SafeImage src={getSelfieSrc(lead)} alt="Selfie" className="w-full h-full object-cover" />
+                                         {/* Selfie Avatar */}
+                                         <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-900 border border-white/10 shrink-0 relative group cursor-pointer" onClick={() => openSelfieWindow(selfieSrc)}>
+                                             <SafeImage src={selfieSrc} alt="Selfie" className="w-full h-full object-cover" />
+                                             <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
+                                                 <span className="text-xs">🔍</span>
+                                             </div>
                                          </div>
+                                         
+                                         {/* Details */}
                                          <div>
-                                             <div className="font-bold text-lg text-white">{lead.name || 'Anonymous Guest'}</div>
+                                             <div className="font-bold text-lg text-white flex items-center gap-2">
+                                                 {lead.name || 'Anonymous Guest'}
+                                                 {!lead.name && <span className="text-xs bg-gray-800 px-2 py-0.5 rounded text-gray-400">Unknown</span>}
+                                             </div>
                                              <div className="text-brand font-mono text-sm">{lead.mobile || 'No Mobile'}</div>
-                                             <div className="text-xs text-gray-500 mt-1">{new Date(lead.timestamp).toLocaleString()}</div>
+                                             <div className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                                                 <span>🕒</span> {timeString}
+                                             </div>
                                          </div>
                                      </div>
                                      
+                                     {/* Metrics */}
                                      <div className="flex items-center justify-between w-full md:w-auto gap-6 bg-white/5 p-3 rounded-lg md:bg-transparent md:p-0">
-                                         <div className="text-center">
-                                             <div className="text-xs text-gray-400 uppercase tracking-wider">Matches</div>
-                                             <div className="font-bold text-xl">{lead.match_count}</div>
+                                         <div className="text-center min-w-[60px]">
+                                             <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">Found</div>
+                                             <div className="font-bold text-xl text-green-400">{lead.match_count || 0}</div>
                                          </div>
                                          <button 
-                                            onClick={() => openSelfieWindow(getSelfieSrc(lead))}
+                                            onClick={() => openSelfieWindow(selfieSrc)}
                                             className="px-4 py-2 text-sm border border-white/20 rounded-lg hover:bg-white/10 transition whitespace-nowrap"
                                          >
                                             View Selfie
                                          </button>
                                      </div>
                                  </div>
-                             ))}
+                             )})}
                          </div>
                      )}
                  </div>
