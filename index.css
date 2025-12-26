@@ -2,33 +2,43 @@
 @tailwind components;
 @tailwind utilities;
 
-body { 
-  background-color: #000000; 
-  color: #ffffff; 
-  overflow-x: hidden;
+:root {
+  --brand-color: #00e676; /* Default, will be overridden by JS */
 }
 
-/* Custom Scrollbar */
+body { 
+  background-color: #050505; 
+  color: #ffffff; 
+  overflow-x: hidden;
+  font-family: 'Inter', sans-serif;
+}
+
+/* Premium Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #0a0a0a; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
-::-webkit-scrollbar-thumb:hover { background: #00e676; }
+::-webkit-scrollbar-thumb:hover { background: var(--brand-color); }
 
 /* Utilities */
 .glass-panel {
   background: rgba(20, 20, 20, 0.6);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.animate-fade-in {
-  animation: fadeIn 0.5s ease-out forwards;
+.premium-shadow {
+  box-shadow: 0 10px 40px -10px rgba(0,0,0,0.5);
 }
 
-.animate-slide-up {
-  animation: slideUp 0.5s ease-out forwards;
+.hero-gradient {
+  background: linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.8) 80%, #050505 100%);
 }
+
+/* Animations */
+.animate-fade-in { animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-slide-up { animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-pop { animation: pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
 
 @keyframes fadeIn {
   from { opacity: 0; }
@@ -36,14 +46,23 @@ body {
 }
 
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(20px); }
+  from { opacity: 0; transform: translateY(40px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-.scrollbar-hide::-webkit-scrollbar {
-    display: none;
+@keyframes pop {
+  0% { transform: scale(0.9); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
 }
-.scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-}
+
+/* Hide Scrollbar but keep functionality */
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Dynamic Brand Utilities */
+.text-brand { color: var(--brand-color); }
+.bg-brand { background-color: var(--brand-color); }
+.border-brand { border-color: var(--brand-color); }
+.ring-brand { --tw-ring-color: var(--brand-color); }
+.shadow-brand-glow { box-shadow: 0 0 20px rgba(var(--brand-color), 0.3); }
