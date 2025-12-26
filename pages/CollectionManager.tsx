@@ -225,6 +225,22 @@ const CollectionManager = () => {
     }
   };
 
+  const handleRenameFace = async (faceId: string, currentName?: string) => {
+    if (!id) return;
+    const newName = prompt("Name this person:", currentName === "Unknown" ? "" : currentName);
+    if (newName !== null && newName.trim() !== "" && newName !== currentName) {
+        try {
+            // Optimistic update
+            setFaces(prev => prev.map(f => f.FaceId === faceId ? { ...f, FaceName: newName } : f));
+            await Api.saveFaceName(id, faceId, newName);
+        } catch (e) {
+            console.error(e);
+            alert("Failed to save name");
+            loadData();
+        }
+    }
+  };
+
   return (
     <div className="dashboard-container">
       
@@ -342,7 +358,16 @@ const CollectionManager = () => {
                   onClick={() => setFilterFaceId(face.FaceId)}
                 >
                   <div className="face-avatar" style={getFaceStyle(face.sampleUrl || '', face.BoundingBox)}></div>
-                  <div className="text-xs font-bold text-white truncate px-1">{face.FaceName}</div>
+                  <div 
+                      className="text-xs font-bold text-white truncate px-1 hover:text-brand hover:underline cursor-pointer flex items-center justify-center gap-1"
+                      onClick={(e) => {
+                          e.stopPropagation();
+                          handleRenameFace(face.FaceId, face.FaceName);
+                      }}
+                      title="Click to rename"
+                  >
+                      {face.FaceName} <i className="fas fa-pencil-alt text-[8px] text-gray-500"></i>
+                  </div>
                   <div className="text-[10px] text-gray-500">{face.photoCount}</div>
                 </div>
               ))}
