@@ -3,62 +3,40 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Api } from '../services/api';
 import { EventData, Photo, FaceGroup, Lead } from '../types';
 
+// ... (SafeImage और getFaceStyle कोड वही रहेगा जो पहले था, उसे कॉपी करें)
 // Helper to calculate CSS for face crop
 const getFaceStyle = (url: string, bbox: any) => {
     if (!url) return {};
-    
     const style: React.CSSProperties = {
         backgroundImage: `url("${url}")`,
         backgroundRepeat: 'no-repeat',
         backgroundPosition: 'center',
         backgroundSize: 'cover'
     };
-
     if (bbox && bbox.Left !== undefined) {
         const clamp01 = (x: any) => Math.max(0, Math.min(1, Number(x) || 0));
-        
-        const L = clamp01(bbox.Left);
-        const T = clamp01(bbox.Top);
-        const W = clamp01(bbox.Width);
-        const H = clamp01(bbox.Height);
-
-        // Zoom logic
+        const L = clamp01(bbox.Left); const T = clamp01(bbox.Top);
+        const W = clamp01(bbox.Width); const H = clamp01(bbox.Height);
         const zoom = 1 / Math.max(W, H, 0.0001);
-        const cx = (L + W/2) * 100;
-        const cy = (T + H/2) * 100;
-
+        const cx = (L + W/2) * 100; const cy = (T + H/2) * 100;
         style.backgroundSize = `${zoom * 100}% ${zoom * 100}%`;
         style.backgroundPosition = `${cx}% ${cy}%`;
     }
     return style;
 };
 
-// Safe Image Component to prevent infinite loops
+// Safe Image Component
 const SafeImage = ({ src, alt, className }: { src: string, alt: string, className?: string }) => {
     const [error, setError] = useState(false);
-
-    if (error || !src || src.includes('undefined')) {
-        return (
-            <div className={`${className} bg-gray-800 flex items-center justify-center`}>
-                <span className="text-xs text-gray-500">No Image</span>
-            </div>
-        );
-    }
-
-    return (
-        <img 
-            src={src} 
-            alt={alt} 
-            className={className}
-            onError={() => setError(true)}
-        />
-    );
+    if (error || !src || src.includes('undefined')) return <div className={`${className} bg-gray-800 flex items-center justify-center`}><span className="text-xs text-gray-500">No Image</span></div>;
+    return <img src={src} alt={alt} className={className} onError={() => setError(true)} />;
 };
 
 const CollectionManager = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'gallery' | 'events' | 'upload' | 'links' | 'guests'>('gallery');
+  // Added 'selection' tab
+  const [activeTab, setActiveTab] = useState<'gallery' | 'events' | 'upload' | 'links' | 'guests' | 'selection'>('gallery');
   
   // Data State
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -66,6 +44,9 @@ const CollectionManager = () => {
   const [faces, setFaces] = useState<FaceGroup[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Selection Mode State (New)
+  const [clientSelections, setClientSelections] = useState<Set<string>>(new Set());
   
   // Filtering
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
@@ -106,29 +87,18 @@ const CollectionManager = () => {
       const loadedPhotos = photoData.photos || [];
       setPhotos(loadedPhotos);
       
-      // ✅ FIX: Face Logic Merge
-      // 1. Photos से raw faces बनाओ
+      // Face Logic (Merged from previous fix)
       const calculatedFaces = buildFacesFromPhotos(loadedPhotos);
-      
       try {
-        // 2. Backend से saved names लाओ
         const faceData = await Api.listPeople(id);
         const savedFaces = faceData.people || [];
-        
-        // 3. Merge Saved Names into Calculated Faces
         const mergedFaces = calculatedFaces.map(cF => {
             const match = savedFaces.find((sF: any) => sF.FaceId === cF.FaceId);
-            if (match && match.FaceName) {
-                return { ...cF, FaceName: match.FaceName };
-            }
+            if (match && match.FaceName) return { ...cF, FaceName: match.FaceName };
             return cF;
         });
-        
         setFaces(mergedFaces);
-      } catch(e) { 
-          // अगर API फेल हो, तो सिर्फ calculated दिखाओ
-          setFaces(calculatedFaces);
-      }
+      } catch(e) { setFaces(calculatedFaces); }
 
       // Leads
       try {
@@ -143,12 +113,10 @@ const CollectionManager = () => {
     }
   };
 
-  // Ported Client-Side Face Builder
   const buildFacesFromPhotos = (allPhotos: Photo[]): FaceGroup[] => {
       const map = new Map<string, FaceGroup>();
       allPhotos.forEach(photo => {
           const sampleUrl = photo.thumbnail_url || photo.url;
-          // Check photo.faces (objects with bbox)
           const faceObjs = photo.faces || [];
           faceObjs.forEach((f: any) => {
               const fid = f.FaceId || f.face_id;
@@ -161,7 +129,6 @@ const CollectionManager = () => {
                   if(!existing.BoundingBox && f.BoundingBox) existing.BoundingBox = f.BoundingBox;
               }
           });
-          // Check photo.face_ids (just strings, fallback)
           const faceIds = photo.face_ids || [];
           faceIds.forEach(fid => {
               if(!fid) return;
@@ -180,12 +147,11 @@ const CollectionManager = () => {
     const newName = prompt("Enter Name for this person:", currentName === "Unknown" ? "" : currentName);
     if (newName && id) {
         try {
-            // Optimistic Update
             setFaces(prev => prev.map(f => f.FaceId === faceId ? { ...f, FaceName: newName } : f));
             await Api.saveFaceName(id, faceId, newName);
         } catch (error) { 
             alert("Failed to update name");
-            loadData(); // Revert on fail
+            loadData();
         }
     }
   };
@@ -205,6 +171,16 @@ const CollectionManager = () => {
   const displayedPhotos = getFilteredPhotos();
 
   const togglePhotoSelection = (pid: string) => {
+    // If in Selection Mode, toggle 'Heart'
+    if (activeTab === 'selection') {
+        const newSet = new Set(clientSelections);
+        if (newSet.has(pid)) newSet.delete(pid); else newSet.add(pid);
+        setClientSelections(newSet);
+        // Here you would call API to save selection state
+        return;
+    }
+
+    // Normal Admin Selection
     const newSet = new Set(selectedPhotos);
     if (newSet.has(pid)) newSet.delete(pid); else newSet.add(pid);
     setSelectedPhotos(newSet);
@@ -247,7 +223,7 @@ const CollectionManager = () => {
           setProgress(Math.round((completedCount / totalFiles) * 100));
       }
       setUploadStatus("Indexing...");
-      await new Promise(r => setTimeout(r, 2000)); // Wait for backend trigger
+      await new Promise(r => setTimeout(r, 2000));
       alert("Upload Complete");
       setFiles([]);
       loadData(); 
@@ -276,14 +252,10 @@ const CollectionManager = () => {
       return acc;
   }, {} as Record<string, { name: string, items: Lead[] }>);
 
-  // Helper to fix selfie string - Robust against truncated data
   const getSelfieSrc = (item: Lead) => {
       let b64 = item.selfie_b64 || item.selfie_image;
-      if (!b64 || b64.length < 100) return ""; // Ignore small/corrupted data
-      
-      if (!b64.startsWith('data:')) {
-          b64 = `data:image/jpeg;base64,${b64}`;
-      }
+      if (!b64 || b64.length < 100) return "";
+      if (!b64.startsWith('data:')) b64 = `data:image/jpeg;base64,${b64}`;
       return b64;
   };
 
@@ -313,6 +285,7 @@ const CollectionManager = () => {
             <div className="flex gap-1 overflow-x-auto scrollbar-hide pb-2 md:pb-0">
                 {[
                   { id: 'gallery', label: 'Gallery', icon: 'fas fa-images' },
+                  { id: 'selection', label: 'Selection', icon: 'fas fa-heart' }, // NEW TAB
                   { id: 'events', label: 'Events', icon: 'fas fa-calendar' },
                   { id: 'upload', label: 'Upload', icon: 'fas fa-cloud-upload-alt' },
                   { id: 'links', label: 'Links', icon: 'fas fa-link' },
@@ -327,7 +300,7 @@ const CollectionManager = () => {
                       : 'border-transparent text-gray-400 hover:text-white hover:bg-white/5'
                     }`}
                   >
-                    <span>{tab.id === 'gallery' ? '🖼️' : tab.id === 'events' ? '📅' : tab.id === 'upload' ? '☁️' : tab.id === 'links' ? '🔗' : '👥'}</span>
+                    <span>{tab.id === 'gallery' ? '🖼️' : tab.id === 'selection' ? '❤️' : tab.id === 'events' ? '📅' : tab.id === 'upload' ? '☁️' : tab.id === 'links' ? '🔗' : '👥'}</span>
                     {tab.label}
                     {tab.id === 'guests' && leads.length > 0 && <span className="ml-1 bg-white/10 text-xs px-1.5 rounded">{leads.length}</span>}
                   </button>
@@ -339,39 +312,42 @@ const CollectionManager = () => {
       {/* 3. MAIN CONTENT */}
       <div className="max-w-7xl mx-auto p-4 md:p-8 animate-fade-in min-h-[80vh]">
         
-        {/* GALLERY TAB */}
-        {activeTab === 'gallery' && (
+        {/* GALLERY & SELECTION TAB */}
+        {(activeTab === 'gallery' || activeTab === 'selection') && (
             <div className="space-y-6">
-                {/* Face Icons Bar */}
+                
+                {/* Face Icons Bar (Only in Gallery Mode) */}
+                {activeTab === 'gallery' && (
                 <div className="glass-panel p-4 rounded-2xl overflow-x-auto">
                     <div className="flex gap-4 min-w-max pb-2">
                         <div onClick={() => setFilterFaceId(null)} className={`flex flex-col items-center cursor-pointer transition ${!filterFaceId ? 'opacity-100' : 'opacity-50'}`}>
-                            <div className="w-16 h-16 rounded-full border-2 border-dashed border-gray-500 flex items-center justify-center bg-gray-900 mb-1">
-                                <span>ALL</span>
-                            </div>
-                            <span className="text-[10px] font-bold">All Photos</span>
+                            <div className="w-16 h-16 rounded-full border-2 border-dashed border-gray-500 flex items-center justify-center bg-gray-900 mb-1"><span>ALL</span></div>
+                            <span className="text-[10px] font-bold">All</span>
                         </div>
-                        
                         {faces.map(face => (
                             <div key={face.FaceId} onClick={() => setFilterFaceId(face.FaceId)} className={`flex flex-col items-center group relative cursor-pointer ${filterFaceId === face.FaceId ? 'scale-105' : 'opacity-80 hover:opacity-100'}`}>
-                                <div 
-                                    className={`w-16 h-16 rounded-full border-2 shadow-lg mb-1 transition-all ${filterFaceId === face.FaceId ? 'border-brand shadow-brand/20' : 'border-gray-700'}`}
-                                    style={getFaceStyle(face.thumbnail || face.sampleUrl || "", face.BoundingBox)}
-                                ></div>
+                                <div className={`w-16 h-16 rounded-full border-2 shadow-lg mb-1 transition-all ${filterFaceId === face.FaceId ? 'border-brand shadow-brand/20' : 'border-gray-700'}`} style={getFaceStyle(face.thumbnail || face.sampleUrl || "", face.BoundingBox)}></div>
                                 <span className="text-[10px] font-bold truncate w-16 text-center">{face.FaceName || 'Unknown'}</span>
-                                <div className="text-[9px] text-gray-500">{face.photoCount}</div>
-                                <button 
-                                    onClick={(e) => handleNameFace(e, face.FaceId, face.FaceName)}
-                                    className="absolute top-0 right-0 bg-black text-white w-5 h-5 rounded-full text-[10px] border border-gray-700 flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
-                                >
-                                    ✎
-                                </button>
+                                <button onClick={(e) => handleNameFace(e, face.FaceId, face.FaceName)} className="absolute top-0 right-0 bg-black text-white w-5 h-5 rounded-full text-[10px] border border-gray-700 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">✎</button>
                             </div>
                         ))}
                     </div>
                 </div>
+                )}
 
-                {/* Filters */}
+                {/* Selection Mode Header */}
+                {activeTab === 'selection' && (
+                     <div className="glass-panel p-4 rounded-xl flex justify-between items-center bg-brand/5 border-brand/20">
+                         <div>
+                             <h2 className="text-xl font-bold text-brand">Client Selection Mode</h2>
+                             <p className="text-sm text-gray-400">Photos selected: {clientSelections.size}</p>
+                         </div>
+                         <button onClick={() => alert("Feature coming soon: Copy Link for Client")} className="bg-white text-black font-bold px-4 py-2 rounded-lg text-sm">Copy Client Link</button>
+                     </div>
+                )}
+
+                {/* Filters (Gallery Only) */}
+                {activeTab === 'gallery' && (
                 <div className="flex justify-between items-center glass-panel p-3 rounded-xl">
                     <div className="flex items-center gap-3">
                         <select value={filterEventId} onChange={e => setFilterEventId(e.target.value)} className="bg-black border border-white/10 rounded-lg px-3 py-1.5 text-sm focus:border-brand outline-none">
@@ -387,15 +363,33 @@ const CollectionManager = () => {
                         {selectedPhotos.size > 0 && <button className="text-xs bg-red-500/10 text-red-500 px-3 py-1.5 rounded">Delete ({selectedPhotos.size})</button>}
                     </div>
                 </div>
+                )}
 
                 {/* Grid */}
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2">
-                    {displayedPhotos.map(photo => (
-                        <div key={photo.photo_id} onClick={() => togglePhotoSelection(photo.photo_id)} className={`aspect-square relative group bg-gray-900 rounded-lg overflow-hidden cursor-pointer ${selectedPhotos.has(photo.photo_id) ? 'ring-2 ring-brand' : ''}`}>
+                    {displayedPhotos.map(photo => {
+                        // Logic for what "Selected" means based on Tab
+                        const isSelected = activeTab === 'selection' ? clientSelections.has(photo.photo_id) : selectedPhotos.has(photo.photo_id);
+                        
+                        return (
+                        <div key={photo.photo_id} onClick={() => togglePhotoSelection(photo.photo_id)} className={`aspect-square relative group bg-gray-900 rounded-lg overflow-hidden cursor-pointer ${isSelected ? (activeTab === 'selection' ? 'ring-2 ring-red-500' : 'ring-2 ring-brand') : ''}`}>
                             <img src={photo.thumbnail_url} loading="lazy" className="w-full h-full object-cover transition duration-500 group-hover:scale-110" alt="img" />
-                            {selectedPhotos.has(photo.photo_id) && <div className="absolute top-1 right-1 bg-brand text-black w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold">✓</div>}
+                            
+                            {/* Selection Indicator */}
+                            {isSelected && (
+                                <div className={`absolute top-1 right-1 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${activeTab === 'selection' ? 'bg-red-500 text-white' : 'bg-brand text-black'}`}>
+                                    {activeTab === 'selection' ? '❤' : '✓'}
+                                </div>
+                            )}
+
+                            {/* Hover Overlay for Selection Mode */}
+                            {activeTab === 'selection' && !isSelected && (
+                                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/30 transition">
+                                    <div className="text-3xl text-red-500 opacity-50">♡</div>
+                                </div>
+                            )}
                         </div>
-                    ))}
+                    )})}
                 </div>
             </div>
         )}
@@ -489,49 +483,22 @@ const CollectionManager = () => {
             <div className="space-y-4 max-w-4xl mx-auto">
                 {Object.entries(groupedLeads).map(([mobile, group], idx) => (
                     <div key={mobile} className="glass-panel rounded-xl overflow-hidden border border-white/5">
-                        {/* Header */}
-                        <div 
-                            onClick={() => setOpenLeadGroup(openLeadGroup === mobile ? null : mobile)}
-                            className="p-4 flex items-center justify-between cursor-pointer hover:bg-white/5 transition"
-                        >
+                        <div onClick={() => setOpenLeadGroup(openLeadGroup === mobile ? null : mobile)} className="p-4 flex items-center justify-between cursor-pointer hover:bg-white/5 transition">
                             <div className="flex items-center gap-4">
                                 <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-brand/50 bg-black">
-                                    {/* USE SAFE IMAGE HERE */}
-                                    <SafeImage 
-                                        src={getSelfieSrc(group.items[0])} 
-                                        alt="Selfie"
-                                        className="w-full h-full object-cover"
-                                    />
+                                    <SafeImage src={getSelfieSrc(group.items[0])} alt="Selfie" className="w-full h-full object-cover" />
                                 </div>
-                                <div>
-                                    <h3 className="font-bold text-lg">{group.name}</h3>
-                                    <div className="text-brand font-mono text-sm">{mobile}</div>
-                                </div>
+                                <div><h3 className="font-bold text-lg">{group.name}</h3><div className="text-brand font-mono text-sm">{mobile}</div></div>
                             </div>
-                            <div className="flex items-center gap-4">
-                                <span className="bg-white/10 px-3 py-1 rounded-full text-xs font-bold">{group.items.length} Sessions</span>
-                                <span className={`transform transition ${openLeadGroup === mobile ? 'rotate-180' : ''}`}>▼</span>
-                            </div>
+                            <div className="flex items-center gap-4"><span className="bg-white/10 px-3 py-1 rounded-full text-xs font-bold">{group.items.length} Sessions</span><span className={`transform transition ${openLeadGroup === mobile ? 'rotate-180' : ''}`}>▼</span></div>
                         </div>
-
-                        {/* Expandable Body */}
                         {openLeadGroup === mobile && (
                             <div className="bg-black/40 border-t border-white/10 p-4 space-y-3">
                                 {group.items.map((item, i) => (
                                     <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5">
                                         <div className="flex items-center gap-4">
-                                            {/* USE SAFE IMAGE HERE */}
-                                            <div className="w-10 h-10 rounded overflow-hidden bg-black border border-white/10">
-                                                <SafeImage 
-                                                    src={getSelfieSrc(item)} 
-                                                    alt="Selfie"
-                                                    className="w-full h-full object-cover"
-                                                />
-                                            </div>
-                                            <div className="text-sm">
-                                                <div className="text-gray-400">Time: <span className="text-white">{new Date(item.timestamp).toLocaleString()}</span></div>
-                                                <div className="text-green-400 font-bold">{item.match_count} Photos Found</div>
-                                            </div>
+                                            <div className="w-10 h-10 rounded overflow-hidden bg-black border border-white/10"><SafeImage src={getSelfieSrc(item)} alt="Selfie" className="w-full h-full object-cover" /></div>
+                                            <div className="text-sm"><div className="text-gray-400">Time: <span className="text-white">{new Date(item.timestamp).toLocaleString()}</span></div><div className="text-green-400 font-bold">{item.match_count} Photos Found</div></div>
                                         </div>
                                         <button className="text-xs border border-white/20 px-3 py-1 rounded hover:bg-white/10" onClick={() => openSelfieWindow(getSelfieSrc(item))}>View Selfie</button>
                                     </div>
