@@ -104,7 +104,9 @@ export const Api = {
       headers: getHeaders(),
       body: JSON.stringify({ collection_id })
     });
-    return res.json();
+    const data = await res.json();
+    // ROBUST HANDLING: Backend might return 'people', 'faces', or 'Faces'
+    return { people: data.people || data.faces || data.Faces || [] };
   },
 
   saveFaceName: async (collection_id: string, face_id: string, name: string) => {
@@ -135,7 +137,12 @@ export const Api = {
       body: JSON.stringify({ collection_id, action: 'list' })
     });
     if (!res.ok) throw new Error("Failed to fetch leads");
-    return res.json();
+    const data = await res.json();
+    // Handle if backend returns wrapped object or direct array
+    if (Array.isArray(data)) return data;
+    if (data.leads) return data.leads;
+    if (data.Items) return data.Items;
+    return [];
   },
 
   // --- Guest Side (No Auth Header usually, or minimal) ---
