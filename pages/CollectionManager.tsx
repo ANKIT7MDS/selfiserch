@@ -26,6 +26,7 @@ const getFaceStyle = (url: string, bbox: any) => {
 const SafeImage = ({ src, alt, className }: { src: string, alt: string, className?: string }) => {
     const [error, setError] = useState(false);
     
+    // Safely handle empty or string "null"/"undefined"
     if (error || !src || src === 'undefined' || src === 'null' || src === "") {
         return (
             <div className={`${className} bg-gray-800 flex items-center justify-center border border-white/10`}>
@@ -133,7 +134,8 @@ const CollectionManager = () => {
       // Lead Logic
       try {
         const leadData = await Api.getLeads(id);
-        // Do not group leads, just filter client selection
+        // Robust filtering for Client Selections vs Regular Guests
+        // Using normalized 'name' key thanks to Api.getLeads
         const regularLeads = leadData.filter(l => l.name !== "CLIENT_SELECTION");
         setLeads(regularLeads);
         
@@ -337,20 +339,25 @@ const CollectionManager = () => {
     try {
         const res = await Api.generateLink({ collection_id: id, event_ids: selectedLinkEvents, expiry_hours: expiryHours, password: linkPassword });
         
-        // Robust ID Extraction Logic
+        // Robust ID Extraction Logic (Handles Query params or Path params)
         let finalId = "";
-        if (res.searchUrl && res.searchUrl.includes("linkId=")) {
-             finalId = res.searchUrl.split("linkId=")[1].split("&")[0];
-        } else if (res.searchUrl) {
-             // Fallback: take the last segment if URL structure varies
-             finalId = res.searchUrl.split("/").pop() || "";
+        if (res && res.searchUrl) {
+            const urlStr = res.searchUrl;
+            if (urlStr.includes("linkId=")) {
+                finalId = urlStr.split("linkId=")[1].split("&")[0];
+            } else {
+                finalId = urlStr.split("/").pop() || "";
+            }
         }
         
-        if (!finalId) throw new Error("Could not parse Link ID");
+        if (!finalId) throw new Error("Could not parse Link ID from response");
 
         const guestUrl = `${window.location.origin}/#/?linkId=${finalId}`;
         setGeneratedLink(guestUrl);
-    } catch (e) { alert("Failed to generate link"); }
+    } catch (e) { 
+        console.error(e);
+        alert("Failed to generate link"); 
+    }
   };
   
   const generateClientLink = async () => {
@@ -362,21 +369,28 @@ const CollectionManager = () => {
             
             // Robust ID Extraction Logic
             let lid = "";
-            if (res.searchUrl && res.searchUrl.includes("linkId=")) {
-                lid = res.searchUrl.split("linkId=")[1].split("&")[0];
-            } else if (res.searchUrl) {
-                lid = res.searchUrl.split("/").pop() || "";
+            if (res && res.searchUrl) {
+                const urlStr = res.searchUrl;
+                if (urlStr.includes("linkId=")) {
+                    lid = urlStr.split("linkId=")[1].split("&")[0];
+                } else {
+                    lid = urlStr.split("/").pop() || "";
+                }
             }
 
-            if (!lid) throw new Error("Could not parse Link ID");
+            if (!lid) throw new Error("Could not parse Link ID from response");
 
             const url = `${window.location.origin}/#/client-select?linkId=${lid}`;
             setClientLink(url);
        } catch(e) { alert("Error generating client link"); }
   };
 
+  // Helper to safely get the image string for rendering
   const getSelfieSrc = (item: Lead) => {
-      let b64 = item.selfie_b64 || item.selfie_image;
+      // API might return 'selfie_image' or 'selfie_b64' or capitalized versions
+      // The normalizeItem in Api.ts should handle this, but being extra safe here
+      let b64 = item.selfie_b64 || item.selfie_image || (item as any).SelfieImage || "";
+      
       if (!b64) return "";
       if (b64.startsWith('http')) return b64;
       if (!b64.startsWith('data:')) b64 = `data:image/jpeg;base64,${b64}`;
@@ -384,8 +398,9 @@ const CollectionManager = () => {
   };
 
   const openSelfieWindow = (src: string) => {
+      if(!src) return;
       const w = window.open("");
-      if(w) w.document.write(`<img src="${src}" style="max-width:100%"/>`);
+      if(w) w.document.write(`<html><body style='margin:0;background:black;display:flex;align-items:center;justify-content:center;height:100vh;'><img src="${src}" style="max-width:100%;max-height:100%;object-fit:contain"/></body></html>`);
   }
 
   const formatBytes = (bytes: number) => {
