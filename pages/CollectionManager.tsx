@@ -24,11 +24,10 @@ const getFaceStyle = (url: string, bbox: any) => {
     return style;
 };
 
-// Safe Image Component (Fix for broken selfies)
+// Safe Image Component (Fix for broken selfies/images)
 const SafeImage = ({ src, alt, className }: { src: string, alt: string, className?: string }) => {
     const [error, setError] = useState(false);
     
-    // Validate src
     if (error || !src || src === 'undefined' || src.length < 10) {
         return <div className={`${className} bg-gray-800 flex items-center justify-center`}><span className="text-xs text-gray-500">No Img</span></div>;
     }
@@ -131,7 +130,7 @@ const CollectionManager = () => {
         // 3. Merge: Prioritize saved names
         const mergedFaces = calculatedFaces.map(cF => {
             const match = savedFaces.find((sF: any) => sF.FaceId === cF.FaceId);
-            if (match && match.FaceName) {
+            if (match && match.FaceName && match.FaceName !== "Unknown") {
                 return { ...cF, FaceName: match.FaceName };
             }
             return cF;
@@ -198,7 +197,7 @@ const CollectionManager = () => {
         
         try {
             await Api.saveFaceName(id, faceId, newName);
-            // Don't full reload to prevent UI jump, state is already updated
+            // DO NOT call loadData() immediately here to avoid overwriting state before backend propagates
         } catch (error) { 
             alert("Failed to save name on server");
             loadData(); // Revert on fail
@@ -210,8 +209,7 @@ const CollectionManager = () => {
       const newName = prompt("Edit Event Name:", oldName);
       if (newName && newName !== oldName && id) {
           try {
-              // Assuming event_date is required, passing a dummy or existing would be better if we had it handy in arguments
-              // For now assuming backend handles partial updates or we pass current date
+              // We reuse upsertEvent but need date. Find existing date or use today
               const evt = events.find(e => e.event_id === eventId);
               await Api.upsertEvent(id, newName, evt?.event_date || new Date().toISOString().split('T')[0], eventId);
               loadData();
@@ -262,8 +260,10 @@ const CollectionManager = () => {
 
       setIsDeleting(true);
       try {
-          for(const photoId of selectedPhotos) {
-              await Api.deletePhoto(id, photoId);
+          const ids = Array.from(selectedPhotos);
+          // Process sequentially to avoid overwhelming browser/api
+          for (let i = 0; i < ids.length; i++) {
+              await Api.deletePhoto(id, ids[i]);
           }
           alert("Photos deleted successfully");
           setSelectedPhotos(new Set());
@@ -615,39 +615,6 @@ const CollectionManager = () => {
                             <button onClick={() => navigator.clipboard.writeText(quickUploadLink)} className="ml-4 bg-brand text-black px-3 py-1 rounded text-xs font-bold">Copy</button>
                         </div>
                     )}
-                </div>
-            </div>
-        )}
-        
-        {activeTab === 'links' && (
-            <div className="grid md:grid-cols-2 gap-8 glass-panel p-8 rounded-2xl">
-                <div>
-                    <h3 className="font-bold mb-4 text-lg">Generate Search Link</h3>
-                    <div className="bg-black/50 border border-white/10 rounded-lg p-3 h-48 overflow-y-auto mb-4">
-                        {events.map(e => (
-                            <label key={e.event_id} className="flex items-center gap-2 p-2 hover:bg-white/5 rounded cursor-pointer">
-                                <input type="checkbox" checked={selectedLinkEvents.includes(e.event_id)} onChange={ev => {
-                                    if(ev.target.checked) setSelectedLinkEvents([...selectedLinkEvents, e.event_id]);
-                                    else setSelectedLinkEvents(selectedLinkEvents.filter(x => x !== e.event_id));
-                                }} className="accent-brand" />
-                                <span className="text-sm">{e.name}</span>
-                            </label>
-                        ))}
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 mb-4">
-                        <input type="number" placeholder="Hours" value={expiryHours} onChange={e => setExpiryHours(Number(e.target.value))} className="bg-black border border-white/10 p-2 rounded-lg" />
-                        <input type="text" placeholder="PIN" value={linkPassword} onChange={e => setLinkPassword(e.target.value)} className="bg-black border border-white/10 p-2 rounded-lg" />
-                    </div>
-                    <button onClick={handleGenerateLink} className="w-full bg-white text-black font-bold py-3 rounded-lg hover:bg-gray-200">Generate</button>
-                </div>
-                <div className="flex flex-col items-center justify-center border-l border-white/10">
-                    {generatedLink ? (
-                        <div className="text-center w-full">
-                            <div className="text-brand text-5xl mb-4">✓</div>
-                            <div className="bg-black p-3 rounded border border-brand/50 text-brand text-xs break-all font-mono mb-4">{generatedLink}</div>
-                            <button onClick={() => navigator.clipboard.writeText(generatedLink)} className="bg-brand text-black font-bold px-6 py-2 rounded-lg">Copy Link</button>
-                        </div>
-                    ) : <div className="text-gray-500">Select events to start</div>}
                 </div>
             </div>
         )}

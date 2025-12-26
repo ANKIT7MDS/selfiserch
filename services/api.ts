@@ -201,6 +201,8 @@ export const Api = {
 
   // --- CLIENT SELECTION ---
   getClientGallery: async (linkId: string, pin: string) => {
+      // FIX: Added 'selfieImage' dummy string. 
+      // The backend validates this field exists before checking 'mode'.
       const res = await fetch(`${API_BASE}/search`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
