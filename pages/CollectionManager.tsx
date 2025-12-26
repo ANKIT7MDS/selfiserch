@@ -204,9 +204,53 @@ const CollectionManager = () => {
       if(!id || !collectionInfo) return;
       try {
           await Api.upsertCollection(collectionInfo.name, id, theme);
-          alert("Theme Saved!");
+          alert("Theme Saved! Your changes are now live.");
       } catch(e) {
           alert("Failed to save settings");
+      }
+  };
+
+  // --- NEW: Handle File Upload for Branding ---
+  const handleThemeFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'logo_url' | 'background_image') => {
+      const file = e.target.files?.[0];
+      if (!file || !id) return;
+
+      // We need an event to "host" these files. Use the first one or create a dummy one if none exist.
+      if (events.length === 0) {
+          alert("Please create at least one Event in the Events tab to store theme files.");
+          return;
+      }
+      const storageEventId = events[0].event_id;
+
+      setUploading(true);
+      try {
+          // 1. Generate URL
+          const { urls } = await Api.generateUploadUrls(id, storageEventId, [{
+              name: `theme_${field}_${Date.now()}.jpg`,
+              type: file.type
+          }]);
+          const uploadInfo = urls[0];
+
+          // 2. Upload to S3
+          await fetch(uploadInfo.uploadURL, {
+              method: 'PUT',
+              body: file,
+              headers: { 'Content-Type': file.type }
+          });
+
+          // 3. Extract Clean Public URL
+          // AWS Presigned URLs contain the full path. We remove query params.
+          const cleanUrl = uploadInfo.uploadURL.split('?')[0];
+
+          // 4. Update State
+          setTheme(prev => ({ ...prev, [field]: cleanUrl }));
+          alert("Image uploaded successfully! Don't forget to click 'Save Customization'.");
+
+      } catch (error) {
+          console.error(error);
+          alert("Failed to upload image. Please try again.");
+      } finally {
+          setUploading(false);
       }
   };
 
@@ -298,7 +342,6 @@ const CollectionManager = () => {
     }
   };
   
-  // FIX: Generate Link with Event ID pre-selected
   const generateQuickUploadLink = () => {
       if (!selectedEventId) return alert("Please select an event first!");
       const url = `${window.location.origin}/#/quick-upload/${id}?eventId=${selectedEventId}`;
@@ -644,7 +687,8 @@ const CollectionManager = () => {
         {activeTab === 'settings' && (
             <div className="glass-panel p-8 rounded-2xl max-w-2xl mx-auto">
                 <h2 className="text-2xl font-bold mb-6">Customize Branding</h2>
-                <div className="space-y-6">
+                <div className="space-y-8">
+                    {/* Brand Color */}
                     <div>
                         <label className="block text-sm text-gray-400 mb-2">Brand Accent Color</label>
                         <div className="flex gap-4 items-center">
@@ -652,15 +696,76 @@ const CollectionManager = () => {
                             <input type="text" value={theme.primary_color} onChange={e => setTheme({...theme, primary_color: e.target.value})} className="bg-black border border-white/10 p-2 rounded text-white flex-1" />
                         </div>
                     </div>
+
+                    {/* Logo Section */}
                     <div>
-                        <label className="block text-sm text-gray-400 mb-2">Logo URL</label>
-                        <input type="text" placeholder="https://..." value={theme.logo_url} onChange={e => setTheme({...theme, logo_url: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-lg text-white" />
+                        <label className="block text-sm text-gray-400 mb-2">Logo</label>
+                        <div className="flex flex-col gap-4">
+                            {theme.logo_url && (
+                                <div className="p-4 bg-white/5 rounded-lg border border-dashed border-gray-600 flex items-center justify-center">
+                                    <img src={theme.logo_url} alt="Logo Preview" className="h-16 object-contain" />
+                                </div>
+                            )}
+                            <div className="flex gap-2">
+                                <input 
+                                    type="text" 
+                                    placeholder="https://..." 
+                                    value={theme.logo_url} 
+                                    onChange={e => setTheme({...theme, logo_url: e.target.value})} 
+                                    className="w-full bg-black border border-white/10 p-3 rounded-lg text-white" 
+                                />
+                                <div className="relative">
+                                    <input 
+                                        type="file" 
+                                        accept="image/*" 
+                                        onChange={(e) => handleThemeFileUpload(e, 'logo_url')} 
+                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                                        disabled={uploading}
+                                    />
+                                    <button className="bg-white/10 border border-white/20 text-white font-bold h-full px-4 rounded-lg hover:bg-white/20 whitespace-nowrap">
+                                        {uploading ? '...' : 'Upload ⬆'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
+
+                    {/* Background Image Section */}
                     <div>
-                        <label className="block text-sm text-gray-400 mb-2">Background Image URL</label>
-                        <input type="text" placeholder="https://..." value={theme.background_image} onChange={e => setTheme({...theme, background_image: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-lg text-white" />
+                        <label className="block text-sm text-gray-400 mb-2">Background Image</label>
+                        <div className="flex flex-col gap-4">
+                            {theme.background_image && (
+                                <div className="h-32 w-full bg-cover bg-center rounded-lg border border-dashed border-gray-600 relative" style={{backgroundImage: `url(${theme.background_image})`}}>
+                                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-xs text-white">Preview</div>
+                                </div>
+                            )}
+                            <div className="flex gap-2">
+                                <input 
+                                    type="text" 
+                                    placeholder="https://..." 
+                                    value={theme.background_image} 
+                                    onChange={e => setTheme({...theme, background_image: e.target.value})} 
+                                    className="w-full bg-black border border-white/10 p-3 rounded-lg text-white" 
+                                />
+                                <div className="relative">
+                                    <input 
+                                        type="file" 
+                                        accept="image/*" 
+                                        onChange={(e) => handleThemeFileUpload(e, 'background_image')} 
+                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                                        disabled={uploading}
+                                    />
+                                    <button className="bg-white/10 border border-white/20 text-white font-bold h-full px-4 rounded-lg hover:bg-white/20 whitespace-nowrap">
+                                        {uploading ? '...' : 'Upload ⬆'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <button onClick={saveSettings} className="w-full bg-brand text-black font-bold py-3 rounded-lg hover:brightness-110 mt-4">Save Customization</button>
+
+                    <button onClick={saveSettings} className="w-full bg-brand text-black font-bold py-3 rounded-lg hover:brightness-110 mt-4 shadow-[0_0_15px_rgba(0,230,118,0.4)]">
+                        Save Customization
+                    </button>
                 </div>
             </div>
         )}
