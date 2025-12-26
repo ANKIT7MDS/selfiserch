@@ -35,15 +35,58 @@ const RequireAuth = ({ children, allowedRoles }: { children: React.ReactElement,
 
 const MainRouter = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const [isGuest, setIsGuest] = useState(false);
+  const [isProcessingToken, setIsProcessingToken] = useState(true);
 
   useEffect(() => {
-    // Check if accessing via Guest Link (query param linkId)
+    // 1. Check for Cognito Token in Hash (Coming back from AWS)
+    // AWS redirects to: https://site.com/#id_token=...
+    const hash = window.location.hash;
+    if (hash && hash.includes('id_token')) {
+       console.log("Found token in hash, processing...");
+       // We manually parse here because HashRouter might get confused by the token param
+       try {
+          const params = new URLSearchParams(hash.substring(hash.indexOf('#') + 1)); // Handle #/path or #token
+          const idToken = params.get('id_token') || hash.split('id_token=')[1]?.split('&')[0];
+          
+          if (idToken) {
+            const payload = JSON.parse(atob(idToken.split('.')[1]));
+            const user = {
+              email: payload.email,
+              sub: payload.sub,
+              groups: payload['cognito:groups'] || []
+            };
+            
+            localStorage.setItem('idToken', idToken);
+            localStorage.setItem('user', JSON.stringify(user));
+
+            // Clean URL and redirect
+            if (user.groups.includes('MasterAdmins')) {
+              navigate('/admin', { replace: true });
+            } else {
+              navigate('/dashboard', { replace: true });
+            }
+            setIsProcessingToken(false);
+            return;
+          }
+       } catch (e) {
+         console.error("Token parse error", e);
+       }
+    }
+
+    // 2. Check if Guest
     const params = new URLSearchParams(location.search);
     if (params.get('linkId')) {
       setIsGuest(true);
     }
-  }, [location]);
+    
+    setIsProcessingToken(false);
+  }, [location, navigate]);
+
+  if (isProcessingToken) {
+     return <div className="h-screen bg-black text-brand flex items-center justify-center">Verifying Access...</div>;
+  }
 
   if (isGuest) {
     return <GuestPortal />;

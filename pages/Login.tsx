@@ -7,48 +7,47 @@ const CLIENT_ID = "6j3gec3kk0q0ktkals8cr8s367";
 const Login = () => {
   const navigate = useNavigate();
 
-  // Handle Token Extraction
+  // Note: Token parsing is now also handled in App.tsx for root redirects,
+  // but we keep it here in case the user is already on /login
   useEffect(() => {
-    // Check if we are coming back from Cognito with a hash
     const hash = window.location.hash;
-    
-    // Process the hash if it exists
     if (hash && hash.includes('id_token')) {
-      const params = new URLSearchParams(hash.replace('#', '?'));
-      const idToken = params.get('id_token');
-      
-      if (idToken) {
-        try {
-          // Decode token payload manually to avoid extra libraries
-          const payload = JSON.parse(atob(idToken.split('.')[1]));
-          
-          const user = {
-            email: payload.email,
-            sub: payload.sub,
-            groups: payload['cognito:groups'] || []
-          };
-          
-          localStorage.setItem('idToken', idToken);
-          localStorage.setItem('user', JSON.stringify(user));
-
-          // Redirect based on role
-          if (user.groups.includes('MasterAdmins')) {
-            navigate('/admin');
-          } else {
-            navigate('/dashboard');
-          }
-        } catch (e) {
-          console.error("Invalid token", e);
-          alert("Login failed: Invalid token structure.");
-        }
-      }
+      processToken(hash);
     }
   }, [navigate]);
 
+  const processToken = (hash: string) => {
+    const params = new URLSearchParams(hash.replace('#', '?'));
+    const idToken = params.get('id_token');
+    
+    if (idToken) {
+      try {
+        const payload = JSON.parse(atob(idToken.split('.')[1]));
+        const user = {
+          email: payload.email,
+          sub: payload.sub,
+          groups: payload['cognito:groups'] || []
+        };
+        
+        localStorage.setItem('idToken', idToken);
+        localStorage.setItem('user', JSON.stringify(user));
+
+        if (user.groups.includes('MasterAdmins')) {
+          navigate('/admin');
+        } else {
+          navigate('/dashboard');
+        }
+      } catch (e) {
+        console.error("Invalid token", e);
+        alert("Login failed: Invalid token structure.");
+      }
+    }
+  };
+
   const handleLogin = () => {
-    // Dynamic Redirect URI: Works on Localhost, Codespaces, and Netlify automatically
-    // It redirects back to the /login page so the useEffect above can catch the token
-    const redirectUri = `${window.location.origin}/login`;
+    // FIX: Use only the origin (https://your-site.netlify.app) without /login
+    // This usually matches the default Allowed Callback URL in AWS Cognito
+    const redirectUri = window.location.origin; 
     
     // Construct Cognito URL
     const cognitoUrl = `${COGNITO_DOMAIN}/login?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}`;
