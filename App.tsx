@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard';
 import CollectionManager from './pages/CollectionManager';
 import SuperAdmin from './pages/SuperAdmin';
 import GuestPortal from './pages/GuestPortal';
+import ClientSelection from './pages/ClientSelection';
 
 // Auth Wrapper
 const RequireAuth = ({ children, allowedRoles }: { children: React.ReactElement, allowedRoles?: string[] }) => {
@@ -37,17 +38,16 @@ const MainRouter = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [isGuest, setIsGuest] = useState(false);
+  const [isClientSelect, setIsClientSelect] = useState(false);
   const [isProcessingToken, setIsProcessingToken] = useState(true);
 
   useEffect(() => {
-    // 1. Check for Cognito Token in Hash (Coming back from AWS)
-    // AWS redirects to: https://site.com/#id_token=...
+    // 1. Check for Cognito Token
     const hash = window.location.hash;
     if (hash && hash.includes('id_token')) {
-       console.log("Found token in hash, processing...");
-       // We manually parse here because HashRouter might get confused by the token param
+       // ... (existing token logic)
        try {
-          const params = new URLSearchParams(hash.substring(hash.indexOf('#') + 1)); // Handle #/path or #token
+          const params = new URLSearchParams(hash.substring(hash.indexOf('#') + 1));
           const idToken = params.get('id_token') || hash.split('id_token=')[1]?.split('&')[0];
           
           if (idToken) {
@@ -61,7 +61,6 @@ const MainRouter = () => {
             localStorage.setItem('idToken', idToken);
             localStorage.setItem('user', JSON.stringify(user));
 
-            // Clean URL and redirect
             if (user.groups.includes('MasterAdmins')) {
               navigate('/admin', { replace: true });
             } else {
@@ -75,10 +74,15 @@ const MainRouter = () => {
        }
     }
 
-    // 2. Check if Guest
-    const params = new URLSearchParams(location.search);
-    if (params.get('linkId')) {
-      setIsGuest(true);
+    // 2. Check for Guest or Client Link
+    // Client Link format: /#/client-select?linkId=...
+    if (location.pathname.includes('client-select')) {
+        setIsClientSelect(true);
+    } else {
+        const params = new URLSearchParams(location.search);
+        if (params.get('linkId') && !location.pathname.includes('login')) {
+            setIsGuest(true);
+        }
     }
     
     setIsProcessingToken(false);
@@ -88,13 +92,13 @@ const MainRouter = () => {
      return <div className="h-screen bg-black text-brand flex items-center justify-center">Verifying Access...</div>;
   }
 
-  if (isGuest) {
-    return <GuestPortal />;
-  }
+  if (isClientSelect) return <ClientSelection />;
+  if (isGuest) return <GuestPortal />;
 
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/client-select" element={<ClientSelection />} />
       
       {/* Super Admin Routes */}
       <Route path="/admin" element={

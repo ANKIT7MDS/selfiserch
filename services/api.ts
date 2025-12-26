@@ -114,7 +114,6 @@ export const Api = {
   },
 
   saveFaceName: async (collection_id: string, face_id: string, name: string) => {
-    // Ensuring keys match the updated Python Lambda exactly (face_id, collection_id, name)
     const res = await fetch(`${API_BASE}/save-face-name`, {
       method: 'POST',
       headers: getHeaders(),
@@ -142,23 +141,14 @@ export const Api = {
         headers: getHeaders(),
         body: JSON.stringify({ collection_id, action: 'list' })
       });
-      
-      // Handle non-200 responses gracefully
-      if (!res.ok) {
-          console.warn("getLeads non-200 response:", res.status);
-          return [];
-      }
-      
+      if (!res.ok) return [];
       const data = await res.json();
-      
-      // Robust parsing
       if (Array.isArray(data)) return data;
       if (data.leads) return data.leads;
       if (data.items) return data.items;
       return [];
     } catch (e) {
-      console.error("getLeads error:", e);
-      return []; // Return empty array instead of throwing to prevent UI crash
+      return []; 
     }
   },
 
@@ -169,11 +159,43 @@ export const Api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ linkId, selfieImage, pin })
     });
-    if (res.status === 401 || res.status === 403) {
-        throw new Error("Invalid PIN");
-    }
+    if (res.status === 401 || res.status === 403) throw new Error("Invalid PIN");
     if (!res.ok) throw new Error("Search failed");
     return res.json();
+  },
+
+  // --- CLIENT SELECTION (NEW) ---
+  // Using the user's "gallery" lambda logic (assuming mapped to /gallery-photos)
+  // If not mapped, we fall back to a public get-photos logic or verify PIN in frontend for now
+  getClientGallery: async (linkId: string, pin: string) => {
+      // NOTE: Ensure your API Gateway maps 'POST /gallery-photos' to your 'gallery' lambda
+      // OR reuse 'search' endpoint if it supports empty selfie
+      const res = await fetch(`${API_BASE}/search`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ linkId, pin, mode: 'client_selection' }) // Sending mode flag
+      });
+      
+      if (res.status === 401 || res.status === 403) throw new Error("Invalid PIN");
+      if (!res.ok) throw new Error("Gallery load failed");
+      return res.json();
+  },
+
+  saveClientSelection: async (linkId: string, selectedPhotoIds: string[]) => {
+      // Reusing save-details to store selection as a "Lead" named "CLIENT_SELECTION"
+      const res = await fetch(`${API_BASE}/save-details`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            linkId,
+            name: "CLIENT_SELECTION",
+            mobile: "0000000000",
+            photo_count: selectedPhotoIds.length,
+            // Storing IDs in selfie_image field as JSON string since it's a large text field
+            selfie_image: JSON.stringify(selectedPhotoIds) 
+        })
+      });
+      return res.json();
   },
 
   saveGuestDetails: async (payload: any) => {

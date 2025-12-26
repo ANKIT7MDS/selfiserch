@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Api } from '../services/api';
 import { EventData, Photo, FaceGroup, Lead } from '../types';
 
-// ... (SafeImage और getFaceStyle कोड वही रहेगा जो पहले था, उसे कॉपी करें)
 // Helper to calculate CSS for face crop
 const getFaceStyle = (url: string, bbox: any) => {
     if (!url) return {};
@@ -68,6 +67,9 @@ const CollectionManager = () => {
   const [linkPassword, setLinkPassword] = useState("");
   const [generatedLink, setGeneratedLink] = useState("");
   const [selectedLinkEvents, setSelectedLinkEvents] = useState<string[]>([]);
+  
+  // Client Link Generation
+  const [clientLink, setClientLink] = useState("");
 
   useEffect(() => {
     if (id) {
@@ -104,6 +106,16 @@ const CollectionManager = () => {
       try {
         const leadData = await Api.getLeads(id);
         setLeads(leadData || []);
+        
+        // CHECK FOR CLIENT SELECTION IN LEADS
+        const selectionLead = leadData?.find(l => l.name === "CLIENT_SELECTION");
+        if(selectionLead && selectionLead.selfie_image) {
+            try {
+                const ids = JSON.parse(selectionLead.selfie_image);
+                setClientSelections(new Set(ids));
+            } catch(e) {}
+        }
+
       } catch(e) { console.warn("Lead fetch error", e); }
       
     } catch (e) {
@@ -173,10 +185,7 @@ const CollectionManager = () => {
   const togglePhotoSelection = (pid: string) => {
     // If in Selection Mode, toggle 'Heart'
     if (activeTab === 'selection') {
-        const newSet = new Set(clientSelections);
-        if (newSet.has(pid)) newSet.delete(pid); else newSet.add(pid);
-        setClientSelections(newSet);
-        // Here you would call API to save selection state
+        // Only for viewing in admin, actual selection is done by client
         return;
     }
 
@@ -243,9 +252,28 @@ const CollectionManager = () => {
         setGeneratedLink(guestUrl);
     } catch (e) { alert("Failed to generate link"); }
   };
+  
+  const generateClientLink = async () => {
+       // We assume a standard link generation but we append client-select path in UI
+       if(!id) return;
+       // We can reuse the same API just to get a valid linkId for the collection
+       // Or assuming linkId matches collectionID or a specific logic.
+       // For safety, let's use generateLink API to get a fresh LinkID
+       try {
+            const allEventIds = events.map(e => e.event_id);
+            if(allEventIds.length === 0) return alert("No events to link");
+            const res = await Api.generateLink({ collection_id: id, event_ids: allEventIds, expiry_hours: 24 * 30, password: linkPassword }); 
+            const lid = res.searchUrl.split('linkId=')[1];
+            const url = `${window.location.origin}/#/client-select?linkId=${lid}`;
+            setClientLink(url);
+       } catch(e) { alert("Error generating client link"); }
+  };
 
   // Group Leads by Mobile
   const groupedLeads = leads.reduce((acc, lead) => {
+      // Exclude Client Selection from Guest List
+      if(lead.name === "CLIENT_SELECTION") return acc;
+
       const phone = lead.mobile || "Unknown";
       if (!acc[phone]) acc[phone] = { name: lead.name || "Guest", items: [] };
       acc[phone].items.push(lead);
@@ -285,7 +313,7 @@ const CollectionManager = () => {
             <div className="flex gap-1 overflow-x-auto scrollbar-hide pb-2 md:pb-0">
                 {[
                   { id: 'gallery', label: 'Gallery', icon: 'fas fa-images' },
-                  { id: 'selection', label: 'Selection', icon: 'fas fa-heart' }, // NEW TAB
+                  { id: 'selection', label: 'Client Select', icon: 'fas fa-heart' }, // NEW TAB
                   { id: 'events', label: 'Events', icon: 'fas fa-calendar' },
                   { id: 'upload', label: 'Upload', icon: 'fas fa-cloud-upload-alt' },
                   { id: 'links', label: 'Links', icon: 'fas fa-link' },
@@ -337,12 +365,25 @@ const CollectionManager = () => {
 
                 {/* Selection Mode Header */}
                 {activeTab === 'selection' && (
-                     <div className="glass-panel p-4 rounded-xl flex justify-between items-center bg-brand/5 border-brand/20">
-                         <div>
-                             <h2 className="text-xl font-bold text-brand">Client Selection Mode</h2>
-                             <p className="text-sm text-gray-400">Photos selected: {clientSelections.size}</p>
+                     <div className="glass-panel p-4 rounded-xl space-y-4 bg-brand/5 border-brand/20">
+                         <div className="flex justify-between items-center">
+                             <div>
+                                 <h2 className="text-xl font-bold text-brand">Client Selection Mode</h2>
+                                 <p className="text-sm text-gray-400">Photos selected by client: {clientSelections.size}</p>
+                             </div>
+                             
+                             <div className="flex gap-2">
+                                 <input type="text" placeholder="Set Link Password" value={linkPassword} onChange={e => setLinkPassword(e.target.value)} className="bg-black/50 border border-white/20 px-3 py-2 rounded text-sm outline-none" />
+                                 <button onClick={generateClientLink} className="bg-white text-black font-bold px-4 py-2 rounded-lg text-sm">Create Link</button>
+                             </div>
                          </div>
-                         <button onClick={() => alert("Feature coming soon: Copy Link for Client")} className="bg-white text-black font-bold px-4 py-2 rounded-lg text-sm">Copy Client Link</button>
+                         
+                         {clientLink && (
+                             <div className="bg-black/40 p-3 rounded flex justify-between items-center border border-white/10">
+                                 <code className="text-brand text-xs break-all">{clientLink}</code>
+                                 <button onClick={() => navigator.clipboard.writeText(clientLink)} className="ml-2 text-xs bg-brand/20 text-brand px-2 py-1 rounded">Copy</button>
+                             </div>
+                         )}
                      </div>
                 )}
 
