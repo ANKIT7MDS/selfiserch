@@ -41,6 +41,7 @@ const CollectionManager = () => {
   const [expiryHours, setExpiryHours] = useState(24);
   const [linkPassword, setLinkPassword] = useState("");
   const [generatedLink, setGeneratedLink] = useState("");
+  const [generatingLink, setGeneratingLink] = useState(false);
   const [clientLink, setClientLink] = useState("");
   const [selectedLinkEvents, setSelectedLinkEvents] = useState<string[]>([]);
 
@@ -204,23 +205,31 @@ const CollectionManager = () => {
       alert("Please select at least one event to generate a link.");
       return;
     }
+
+    setGeneratingLink(true);
+    setGeneratedLink("");
+    
     try {
+      // Treat empty string password as undefined
+      const cleanPassword = linkPassword.trim() === "" ? undefined : linkPassword;
+
       const res = await Api.generateLink({
         collection_id: id,
         event_ids: selectedLinkEvents,
         expiry_hours: expiryHours,
-        password: linkPassword
+        password: cleanPassword
       });
       
       console.log("Link Generation Response:", res); 
 
-      // FIX: Handle searchUrl directly if present (Matches backend response)
-      if (res && res.searchUrl) {
-          setGeneratedLink(res.searchUrl);
+      // 1. Try to get direct URL from response (support camelCase and snake_case)
+      const directUrl = res.searchUrl || res.search_url || res.url;
+      if (directUrl) {
+          setGeneratedLink(directUrl);
           return;
       }
 
-      // Fallback: Check for ID to construct URL
+      // 2. Fallback: Construct URL from ID
       const finalLinkId = res.linkId || res.link_id || res.id;
 
       if (finalLinkId) {
@@ -233,6 +242,8 @@ const CollectionManager = () => {
     } catch (e) {
       console.error("Link Generation Error:", e);
       alert("Error generating link. Please try again.");
+    } finally {
+        setGeneratingLink(false);
     }
   };
 
@@ -589,7 +600,10 @@ const CollectionManager = () => {
                             <input type="number" placeholder="Hours" value={expiryHours} onChange={e => setExpiryHours(Number(e.target.value))} className="input-premium w-24" />
                             <input type="text" placeholder="PIN (Optional)" value={linkPassword} onChange={e => setLinkPassword(e.target.value)} className="input-premium" />
                          </div>
-                         <button onClick={handleGenerateLink} className="btn-premium btn-primary w-full">Generate Link</button>
+                         <button onClick={handleGenerateLink} disabled={generatingLink} className="btn-premium btn-primary w-full flex justify-center items-center gap-2">
+                             {generatingLink ? <i className="fas fa-spinner fa-spin"></i> : null}
+                             {generatingLink ? "Generating..." : "Generate Link"}
+                         </button>
                      </div>
                      
                      <div className="border-l border-border pl-8 flex flex-col justify-center items-center text-center">

@@ -1,3 +1,4 @@
+
 import { AccountStatus, Collection, EventData, FaceGroup, Lead, Photo, Photographer } from "../types";
 
 // AWS API Gateway URL
@@ -218,11 +219,13 @@ export const Api = {
 
   // --- Links & Guests ---
   generateLink: async (payload: { collection_id: string, event_ids: string[], expiry_hours: number, password?: string }) => {
-    // Ensure numbers are actually numbers
-    const cleanPayload = {
+    // Ensure numbers are actually numbers and password is handled
+    const cleanPayload: any = {
         ...payload,
         expiry_hours: Number(payload.expiry_hours) || 24
     };
+    // Backend may fail if password is an empty string; safer to remove it or send null/undefined
+    if (!cleanPayload.password) delete cleanPayload.password;
     
     const res = await fetch(`${API_BASE}/generate-search-link`, {
       method: 'POST',
