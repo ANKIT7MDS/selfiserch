@@ -20,13 +20,26 @@ const RequireAuth = ({ children, allowedRoles }: { children: React.ReactElement,
   const user = JSON.parse(userStr);
   const userGroups = user.groups || [];
 
+  // Special Handling: If user is MasterAdmin but trying to access a restricted non-admin route (like dashboard),
+  // redirect them to /admin to avoid infinite loops or access errors.
+  if (userGroups.includes('MasterAdmins')) {
+      if (allowedRoles && !allowedRoles.includes('MasterAdmins')) {
+          return <Navigate to="/admin" replace />;
+      }
+  }
+
   if (allowedRoles) {
     const hasRole = allowedRoles.some(role => userGroups.includes(role));
-    // If checking for 'Photographer' (default), assume everyone NOT MasterAdmin is one
-    if (allowedRoles.includes('Photographer') && !userGroups.includes('MasterAdmins')) {
+    
+    // Implicit Photographer Role: Everyone who is logged in (and not explicitly restricted) is a Photographer
+    if (allowedRoles.includes('Photographer')) {
+       // If they are logged in, allow access (unless they are MasterAdmins handled above)
        return children;
     }
+
     if (!hasRole) {
+      // If validation fails, redirect based on their actual role to avoid loops
+      if (userGroups.includes('MasterAdmins')) return <Navigate to="/admin" replace />;
       return <Navigate to="/dashboard" replace />;
     }
   }
@@ -39,14 +52,10 @@ const RootHandler = () => {
   const location = useLocation();
 
   // ROBUST LINK DETECTION:
-  // Check React Router location, Window Hash, and Window Search to find linkId anywhere.
-  // This prevents logged-in photographers from being redirected to dashboard when clicking a guest link.
   const getLinkId = () => {
-    // 1. Check React Router parsed search
     const params = new URLSearchParams(location.search);
     if (params.get('linkId')) return params.get('linkId');
 
-    // 2. Check raw window location href (covers edge cases with HashRouter placement)
     if (window.location.href.includes('linkId=')) {
         const match = window.location.href.match(/linkId=([^&]+)/);
         if (match && match[1]) return match[1];
@@ -56,15 +65,12 @@ const RootHandler = () => {
 
   const linkId = getLinkId();
 
-  // 1. If linkId is present ANYWHERE, it's a Guest - Show Guest Portal immediately
   if (linkId) {
     return <GuestPortal />;
   }
 
-  // 2. If valid session exists, go to Dashboard
   const token = localStorage.getItem('idToken');
   if (token) {
-    // Check if admin
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     if (user.groups && user.groups.includes('MasterAdmins')) {
       return <Navigate to="/admin" replace />;
@@ -72,7 +78,6 @@ const RootHandler = () => {
     return <Navigate to="/dashboard" replace />;
   }
 
-  // 3. Otherwise, go to Login
   return <Navigate to="/login" replace />;
 };
 
@@ -83,15 +88,11 @@ const MainRouter = () => {
   useEffect(() => {
     // Only handle Cognito Token parsing here
     const hash = window.location.hash;
-    // Note: In HashRouter, the actual hash fragment might be after the route hash. 
-    // We check the full URL for id_token usually passed by Cognito as a callback.
     if (window.location.href.includes('id_token=')) {
        try {
-          const fullHash = window.location.href.split('#')[1] || ''; // Get part after first #
-          // Cognito might put parameters like #id_token=... directly or /#id_token=...
-          const params = new URLSearchParams(fullHash.replace('/', '')); // Strip leading slash if present
+          const fullHash = window.location.href.split('#')[1] || ''; 
+          const params = new URLSearchParams(fullHash.replace('/', '')); 
           
-          // Fallback regex search if URLSearchParams fails on complex hash
           const idTokenMatch = window.location.href.match(/id_token=([^&]+)/);
           const idToken = params.get('id_token') || (idTokenMatch ? idTokenMatch[1] : null);
           
@@ -119,7 +120,8 @@ const MainRouter = () => {
        }
     }
     
-    setIsProcessingToken(false);
+    // Small delay to allow hash to be processed if present
+    setTimeout(() => setIsProcessingToken(false), 500);
   }, [navigate]);
 
   if (isProcessingToken) {
@@ -128,23 +130,18 @@ const MainRouter = () => {
 
   return (
     <Routes>
-      {/* Root Path Handler (Guest vs Auth vs Login) */}
       <Route path="/" element={<RootHandler />} />
-
-      {/* Public Routes */}
       <Route path="/login" element={<Login />} />
       <Route path="/client-select" element={<ClientSelection />} />
       <Route path="/quick-upload/:collectionId" element={<QuickUpload />} />
-      <Route path="/guest" element={<GuestPortal />} /> {/* Fallback explicit guest route */}
+      <Route path="/guest" element={<GuestPortal />} />
       
-      {/* Super Admin Routes */}
       <Route path="/admin" element={
         <RequireAuth allowedRoles={['MasterAdmins']}>
           <SuperAdmin />
         </RequireAuth>
       } />
 
-      {/* Photographer Routes */}
       <Route path="/dashboard" element={
         <RequireAuth allowedRoles={['Photographer']}>
           <Dashboard />
@@ -157,7 +154,6 @@ const MainRouter = () => {
         </RequireAuth>
       } />
 
-      {/* Default Redirect */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

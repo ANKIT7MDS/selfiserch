@@ -3,9 +3,6 @@ import { useNavigate } from 'react-router-dom';
 
 const COGNITO_DOMAIN = "https://ap-south-1mva8s6f3w.auth.ap-south-1.amazoncognito.com";
 const CLIENT_ID = "6j3gec3kk0q0ktkals8cr8s367";
-// FIX: Hardcoding the production domain to ensure match with AWS Cognito settings
-// regardless of whether the app is run from localhost, Codespaces, or Prod.
-const SITE_URL = "https://selfiphotos.netlify.app";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -46,9 +43,8 @@ const Login = () => {
   };
 
   const handleLogin = () => {
-    // IMPORTANT: AWS Cognito Callback URL must be exactly this: https://selfiphotos.netlify.app
-    // No trailing slash, no /login.
-    const redirectUri = SITE_URL;
+    // Dynamic redirect URI based on current domain to support multiple environments
+    const redirectUri = window.location.origin;
     
     const cognitoUrl = `${COGNITO_DOMAIN}/login?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}`;
     
@@ -73,7 +69,7 @@ const Login = () => {
         <div className="mt-6 text-xs text-gray-600">
           Secure identity provided by Amazon Web Services
           <br/>
-          <span className="text-gray-700">Redirects to: {SITE_URL}</span>
+          <span className="text-gray-700">All data encrypted</span>
         </div>
       </div>
     </div>
