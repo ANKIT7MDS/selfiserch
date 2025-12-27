@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Api } from '../services/api';
@@ -29,6 +30,7 @@ const CollectionManager = () => {
   const [filterFaceId, setFilterFaceId] = useState<string | null>(null);
   const [filterEventId, setFilterEventId] = useState<string>('All');
   const [isDeleting, setIsDeleting] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
   // Upload State
   const [files, setFiles] = useState<File[]>([]);
@@ -42,7 +44,11 @@ const CollectionManager = () => {
   const [linkPassword, setLinkPassword] = useState("");
   const [generatedLink, setGeneratedLink] = useState("");
   const [generatingLink, setGeneratingLink] = useState(false);
-  const [clientLink, setClientLink] = useState("");
+  
+  // New Link Types
+  const [quickUploadLink, setQuickUploadLink] = useState("");
+  const [clientSelectionLink, setClientSelectionLink] = useState("");
+  
   const [selectedLinkEvents, setSelectedLinkEvents] = useState<string[]>([]);
 
   useEffect(() => {
@@ -71,7 +77,7 @@ const CollectionManager = () => {
           }
       }
       
-      // Face Logic: Aggregate faces from photos and merge with saved names
+      // Face Logic
       const calculatedFaces = buildFacesFromPhotos(loadedPhotos);
       try {
         const savedData = await Api.listPeople(id);
@@ -86,11 +92,10 @@ const CollectionManager = () => {
         }));
         setFaces(mergedFaces);
       } catch(e) { 
-        console.warn("Failed to load face names", e);
         setFaces(calculatedFaces); 
       }
 
-      // Lead Logic
+      // Lead Logic (Filter out client selection entries)
       try {
         const leadData = await Api.getLeads(id);
         setLeads(leadData.filter(l => l.name !== "CLIENT_SELECTION"));
@@ -111,6 +116,7 @@ const CollectionManager = () => {
               const fid = f.FaceId || f.face_id;
               if(!fid) return;
               if(!map.has(fid)) {
+                  // Ensure BoundingBox is preserved for the Google Photos style zoom
                   map.set(fid, { FaceId: fid, FaceName: "Unknown", photoCount: 1, sampleUrl, BoundingBox: f.BoundingBox });
               } else {
                   map.get(fid)!.photoCount++;
@@ -122,11 +128,9 @@ const CollectionManager = () => {
 
   const getFilteredPhotos = () => {
     let res = photos;
-    // Filter by Face
     if (filterFaceId) {
         res = res.filter(p => p.faces && p.faces.some((f: any) => (f.FaceId === filterFaceId || f.face_id === filterFaceId)));
     }
-    // Filter by Event
     if (filterEventId !== 'All') res = res.filter(p => p.event_id === filterEventId);
     return res;
   };
@@ -170,6 +174,32 @@ const CollectionManager = () => {
     finally { setUploading(false); }
   };
 
+  // Improved Copy Function with UX Feedback
+  const copyToClipboard = (text: string, id: string) => {
+      navigator.clipboard.writeText(text);
+      setCopyFeedback(id);
+      setTimeout(() => setCopyFeedback(null), 2000);
+  };
+
+  // GROUP LEADS LOGIC: Aggregate duplicate mobile numbers
+  const groupedLeads = React.useMemo(() => {
+    const groups: Record<string, Lead & { count: number }> = {};
+    leads.forEach(lead => {
+        if (!lead.mobile) return;
+        if (!groups[lead.mobile]) {
+            groups[lead.mobile] = { ...lead, count: 1 };
+        } else {
+            groups[lead.mobile].count++;
+            // Update to latest timestamp if needed
+            if (new Date(lead.timestamp) > new Date(groups[lead.mobile].timestamp)) {
+                groups[lead.mobile].timestamp = lead.timestamp;
+                groups[lead.mobile].match_count = lead.match_count; // Take latest count
+            }
+        }
+    });
+    return Object.values(groups).sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }, [leads]);
+
   const formatBytes = (bytes: number) => {
       if (!bytes) return '0 B';
       const k = 1024;
@@ -177,16 +207,22 @@ const CollectionManager = () => {
       return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + ['B', 'KB', 'MB', 'GB'][i];
   };
 
-  // Helper to get face image style (Focus crop)
+  // Google Photos Style Face Centering
   const getFaceStyle = (url: string, bbox: any) => {
       if (!url) return {};
-      // Calculate crop based on bounding box if available
+      // Google Photos style: Zoom significantly into the face
       let position = 'center';
       let size = 'cover';
+      
       if (bbox && bbox.Left !== undefined) {
+         // Calculate center point of the face
          const cx = (bbox.Left + bbox.Width/2) * 100;
          const cy = (bbox.Top + bbox.Height/2) * 100;
-         const zoom = 1 / Math.max(bbox.Width, bbox.Height);
+         
+         // Calculate zoom factor. Smaller bounding box = bigger zoom needed.
+         // Multiplier 1.5 gives a nice "headshot" feel without being too tight
+         const zoom = 1 / Math.max(bbox.Width, bbox.Height) * 0.8; 
+         
          position = `${cx}% ${cy}%`;
          size = `${zoom * 100}%`;
       }
@@ -199,24 +235,19 @@ const CollectionManager = () => {
       await Api.upsertCollection(collectionInfo.name, id, theme);
       alert("Settings saved successfully");
     } catch (e) {
-      console.error(e);
       alert("Failed to save settings");
     }
   };
 
   const handleGenerateLink = async () => {
     if (!id) return;
-    if (selectedLinkEvents.length === 0) {
-      alert("Please select at least one event to generate a link.");
-      return;
-    }
+    if (selectedLinkEvents.length === 0) return alert("Select events first.");
 
     setGeneratingLink(true);
     setGeneratedLink("");
     
     try {
       const cleanPassword = linkPassword.trim() === "" ? undefined : linkPassword;
-
       const res = await Api.generateLink({
         collection_id: id,
         event_ids: selectedLinkEvents,
@@ -224,29 +255,21 @@ const CollectionManager = () => {
         password: cleanPassword
       });
       
-      console.log("Link Generation Response:", res); 
-
-      // 1. Try to get direct URL from response
-      const directUrl = res.searchUrl || res.search_url || res.url;
-      if (directUrl) {
-          setGeneratedLink(directUrl);
-          return;
-      }
-
-      // 2. Fallback: Construct URL from ID
       const finalLinkId = res.linkId || res.link_id || res.id;
-
       if (finalLinkId) {
-        // The RootHandler is now robust enough to handle guest links on the "/" path.
         const url = `${window.location.protocol}//${window.location.host}/#/?linkId=${finalLinkId}`;
         setGeneratedLink(url);
-      } else {
-        console.warn("API Response missing ID or searchUrl:", res);
-        alert("Failed to retrieve Link. Check console for details.");
+        
+        // Generate Client Selection Link (Same ID, different route)
+        const clientUrl = `${window.location.protocol}//${window.location.host}/#/client-select?linkId=${finalLinkId}`;
+        setClientSelectionLink(clientUrl);
+
+        // Generate Quick Upload Link (requires collectionId)
+        const uploadUrl = `${window.location.protocol}//${window.location.host}/#/quick-upload/${id}`;
+        setQuickUploadLink(uploadUrl);
       }
     } catch (e) {
-      console.error("Link Generation Error:", e);
-      alert("Error generating link. Please try again.");
+      alert("Error generating link.");
     } finally {
         setGeneratingLink(false);
     }
@@ -257,13 +280,10 @@ const CollectionManager = () => {
     const newName = prompt("Name this person:", currentName === "Unknown" ? "" : currentName);
     if (newName !== null && newName.trim() !== "" && newName !== currentName) {
         try {
-            // Optimistic update for UI responsiveness
             setFaces(prev => prev.map(f => f.FaceId === faceId ? { ...f, FaceName: newName } : f));
             await Api.saveFaceName(id, faceId, newName);
         } catch (e) {
-            console.error(e);
-            alert("Failed to save name");
-            loadData(); // Revert on error
+            loadData();
         }
     }
   };
@@ -367,16 +387,16 @@ const CollectionManager = () => {
               </div>
             </div>
 
-            {/* Face Grouping Section */}
+            {/* Google Photos Style Faces */}
             <div className="faces-scroll">
               <div 
                 className={`face-avatar-wrapper ${!filterFaceId ? 'active' : ''}`} 
                 onClick={() => setFilterFaceId(null)}
               >
                 <div className="face-avatar bg-gray-800 flex items-center justify-center border-dashed">
-                   <span className="text-xs font-bold">ALL</span>
+                   <i className="fas fa-users text-gray-400"></i>
                 </div>
-                <div className="text-xs font-bold text-white">Everyone</div>
+                <div className="text-xs font-bold text-white mt-1">Everyone</div>
               </div>
               
               {faces.map(face => (
@@ -387,16 +407,14 @@ const CollectionManager = () => {
                 >
                   <div className="face-avatar" style={getFaceStyle(face.sampleUrl || '', face.BoundingBox)}></div>
                   <div 
-                      className="text-xs font-bold text-white truncate px-1 hover:text-brand hover:underline cursor-pointer flex items-center justify-center gap-1"
+                      className="text-xs font-bold text-white truncate px-1 mt-1 hover:text-brand cursor-pointer"
                       onClick={(e) => {
                           e.stopPropagation();
                           handleRenameFace(face.FaceId, face.FaceName);
                       }}
-                      title="Click name to rename"
                   >
-                      {face.FaceName} <i className="fas fa-pencil-alt text-[8px] text-gray-500"></i>
+                      {face.FaceName}
                   </div>
-                  <div className="text-[10px] text-gray-500">{face.photoCount}</div>
                 </div>
               ))}
             </div>
@@ -424,11 +442,10 @@ const CollectionManager = () => {
                 );
               })}
             </div>
-            {displayedPhotos.length === 0 && <div className="text-center py-10 text-gray-500">No photos found in this view.</div>}
           </div>
         )}
 
-        {/* === EVENTS === */}
+        {/* === EVENTS (Standard) === */}
         {activeTab === 'events' && (
           <div className="card animate-fade-in">
              <div className="card-header">
@@ -445,26 +462,20 @@ const CollectionManager = () => {
              </div>
              <div className="grid gap-4">
                 {events.map(evt => (
-                    <div key={evt.event_id} className="bg-white/5 border border-white/10 p-4 rounded-xl flex justify-between items-center hover:border-brand/50 transition">
+                    <div key={evt.event_id} className="bg-white/5 border border-white/10 p-4 rounded-xl flex justify-between items-center">
                         <div>
                             <div className="font-bold text-lg mb-1">{evt.name}</div>
-                            <div className="text-sm text-gray-400 flex gap-4">
-                                <span><i className="fas fa-calendar-alt mr-1"></i> {evt.event_date}</span>
-                                <span><i className="fas fa-image mr-1"></i> {evt.photo_count} photos</span>
+                            <div className="text-sm text-gray-400">
+                                {evt.event_date} • {evt.photo_count} photos
                             </div>
                         </div>
                         <div className="flex gap-2">
-                            <button className="btn-premium btn-secondary" onClick={() => {
-                                const nn = prompt("Rename", evt.name);
-                                if(nn && id) Api.upsertEvent(id, nn, evt.event_date, evt.event_id).then(loadData);
-                            }}>Edit</button>
-                            <button className="btn-premium btn-danger" onClick={() => {
-                                if(confirm("Delete event and all its photos?")) Api.deleteEvent(id!, evt.event_id).then(loadData);
+                             <button className="btn-premium btn-danger" onClick={() => {
+                                if(confirm("Delete event?")) Api.deleteEvent(id!, evt.event_id).then(loadData);
                             }}>Delete</button>
                         </div>
                     </div>
                 ))}
-                {events.length === 0 && <div className="text-center py-10 text-gray-500">No events yet. Create one to upload photos.</div>}
              </div>
           </div>
         )}
@@ -478,11 +489,7 @@ const CollectionManager = () => {
                 
                 <div className="mb-6">
                     <label className="block text-sm text-gray-400 mb-2">Select Target Event</label>
-                    <select 
-                        value={selectedEventId} 
-                        onChange={e => setSelectedEventId(e.target.value)}
-                        className="input-premium"
-                    >
+                    <select value={selectedEventId} onChange={e => setSelectedEventId(e.target.value)} className="input-premium">
                         <option value="">-- Choose Event --</option>
                         {events.map(e => <option key={e.event_id} value={e.event_id}>{e.name}</option>)}
                     </select>
@@ -492,108 +499,91 @@ const CollectionManager = () => {
                     <div className="upload-zone-premium relative">
                         <input type="file" multiple accept="image/*" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => setFiles(Array.from(e.target.files || []))} />
                         <i className="fas fa-cloud-upload text-5xl text-gray-600 mb-4 block"></i>
-                        <h3 className="text-xl font-bold mb-2">Drop photos here or click to browse</h3>
-                        <p className="text-gray-500 text-sm">Supports JPG, PNG, HEIC</p>
+                        <h3 className="text-xl font-bold mb-2">Drop photos here</h3>
                         {files.length > 0 && <div className="mt-4 text-brand font-bold">{files.length} files selected</div>}
                     </div>
                 ) : (
                     <div className="py-10 text-center">
                         <div className="text-2xl font-bold mb-2">{progress}%</div>
                         <div className="w-full bg-gray-700 h-2 rounded-full overflow-hidden mb-2">
-                            <div className="h-full bg-brand transition-all duration-300" style={{width: `${progress}%`}}></div>
+                            <div className="h-full bg-brand" style={{width: `${progress}%`}}></div>
                         </div>
                         <div className="text-gray-400">{uploadStatus}</div>
                     </div>
                 )}
-
                 {files.length > 0 && !uploading && (
-                    <div className="mt-6 text-center">
-                        <button onClick={handleUpload} className="btn-premium btn-primary px-8 py-3">Start Upload</button>
-                    </div>
+                    <button onClick={handleUpload} className="btn-premium btn-primary px-8 py-3 mt-4 w-full">Start Upload</button>
                 )}
             </div>
         )}
 
-        {/* === GUESTS === */}
+        {/* === GUESTS (Grouped & Fixed Selfies) === */}
         {activeTab === 'guests' && (
             <div className="card animate-fade-in">
                 <div className="card-header">
                     <div className="card-title"><i className="fas fa-users"></i> Guest Leads</div>
-                    <div className="text-sm text-gray-400">{leads.length} leads found</div>
+                    <div className="text-sm text-gray-400">{groupedLeads.length} unique guests</div>
                 </div>
                 
                 <div className="overflow-x-auto rounded-lg border border-border">
                     <table className="w-full text-left bg-black/20">
                         <thead className="bg-white/5 text-gray-400 text-xs uppercase">
                             <tr>
-                                <th className="p-4">Guest</th>
-                                <th className="p-4">Contact</th>
-                                <th className="p-4">Time</th>
+                                <th className="p-4">Selfie</th>
+                                <th className="p-4">Guest Info</th>
+                                <th className="p-4">Activity</th>
                                 <th className="p-4">Photos Found</th>
-                                <th className="p-4">Action</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
-                            {leads.map((lead, idx) => (
-                                <tr key={idx} className="hover:bg-white/5">
-                                    <td className="p-4 font-bold text-white">{lead.name || 'Unknown'}</td>
-                                    <td className="p-4 text-gray-300">{lead.mobile}</td>
-                                    <td className="p-4 text-gray-500 text-sm">{lead.timestamp ? new Date(lead.timestamp).toLocaleString() : '-'}</td>
-                                    <td className="p-4 font-bold text-brand">{lead.match_count}</td>
+                            {groupedLeads.map((lead, idx) => (
+                                <tr key={idx} className="hover:bg-white/5 transition">
                                     <td className="p-4">
-                                        <button 
-                                            onClick={() => window.open(lead.selfie_image || lead.selfie_b64, '_blank')}
-                                            className="text-xs bg-white/10 px-3 py-1 rounded hover:bg-white/20"
-                                        >
-                                            View Selfie
-                                        </button>
+                                        {/* Robust Selfie Display */}
+                                        <div className="w-12 h-12 rounded-full overflow-hidden border border-white/20 bg-gray-800">
+                                            {(lead.selfie_image || lead.selfie_b64) ? (
+                                                <img 
+                                                    src={lead.selfie_image || lead.selfie_b64} 
+                                                    className="w-full h-full object-cover cursor-pointer hover:scale-110 transition"
+                                                    onClick={() => window.open(lead.selfie_image || lead.selfie_b64, '_blank')}
+                                                />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">No Img</div>
+                                            )}
+                                        </div>
                                     </td>
+                                    <td className="p-4">
+                                        <div className="font-bold text-white">{lead.name || 'Unknown'}</div>
+                                        <div className="text-brand text-sm">{lead.mobile}</div>
+                                    </td>
+                                    <td className="p-4 text-gray-400 text-sm">
+                                        <div>Last: {new Date(lead.timestamp).toLocaleTimeString()}</div>
+                                        <div className="text-xs opacity-50">{lead.count} total searches</div>
+                                    </td>
+                                    <td className="p-4 font-bold text-white text-lg">{lead.match_count}</td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
-                    {leads.length === 0 && <div className="p-8 text-center text-gray-500">No guest activity yet.</div>}
+                    {groupedLeads.length === 0 && <div className="p-8 text-center text-gray-500">No leads yet.</div>}
                 </div>
             </div>
         )}
 
-        {/* === SETTINGS === */}
-        {activeTab === 'settings' && (
-             <div className="card animate-fade-in">
-                 <div className="card-header">
-                     <div className="card-title"><i className="fas fa-cog"></i> Branding Settings</div>
-                 </div>
-                 <div className="grid md:grid-cols-2 gap-8">
-                     <div>
-                         <label className="block text-sm text-gray-400 mb-2">Primary Color</label>
-                         <div className="flex gap-2">
-                             <input type="color" value={theme.primary_color} onChange={e => setTheme({...theme, primary_color: e.target.value})} className="h-10 w-10 bg-transparent border-none cursor-pointer" />
-                             <input type="text" value={theme.primary_color} onChange={e => setTheme({...theme, primary_color: e.target.value})} className="input-premium" />
-                         </div>
-                     </div>
-                     <div>
-                         <label className="block text-sm text-gray-400 mb-2">Logo URL</label>
-                         <input type="text" value={theme.logo_url} onChange={e => setTheme({...theme, logo_url: e.target.value})} className="input-premium" placeholder="https://..." />
-                     </div>
-                 </div>
-                 <div className="mt-8">
-                     <button onClick={saveSettings} className="btn-premium btn-primary">Save Changes</button>
-                 </div>
-             </div>
-        )}
-
-        {/* === LINKS === */}
+        {/* === LINKS (Copy UX + Client + Upload) === */}
         {activeTab === 'links' && (
              <div className="card animate-fade-in">
                  <div className="card-header">
                      <div className="card-title"><i className="fas fa-link"></i> Share Links</div>
                  </div>
+                 
                  <div className="grid md:grid-cols-2 gap-8">
+                     {/* Generator Column */}
                      <div>
-                         <h3 className="font-bold mb-4">Generate Guest Link</h3>
+                         <h3 className="font-bold mb-4 text-brand">1. Generate Links</h3>
                          <div className="bg-black/20 p-4 rounded-lg border border-border mb-4 max-h-48 overflow-y-auto">
                             {events.map(e => (
-                                <label key={e.event_id} className="flex items-center gap-2 mb-2 cursor-pointer">
+                                <label key={e.event_id} className="flex items-center gap-2 mb-2 cursor-pointer hover:bg-white/5 p-1 rounded">
                                     <input type="checkbox" checked={selectedLinkEvents.includes(e.event_id)} onChange={ev => {
                                         if(ev.target.checked) setSelectedLinkEvents([...selectedLinkEvents, e.event_id]);
                                         else setSelectedLinkEvents(selectedLinkEvents.filter(x => x !== e.event_id));
@@ -603,27 +593,70 @@ const CollectionManager = () => {
                             ))}
                          </div>
                          <div className="flex gap-2 mb-4">
-                            <input type="number" placeholder="Hours" value={expiryHours} onChange={e => setExpiryHours(Number(e.target.value))} className="input-premium w-24" />
+                            <input type="number" placeholder="Hrs" value={expiryHours} onChange={e => setExpiryHours(Number(e.target.value))} className="input-premium w-20" />
                             <input type="text" placeholder="PIN (Optional)" value={linkPassword} onChange={e => setLinkPassword(e.target.value)} className="input-premium" />
                          </div>
-                         <button onClick={handleGenerateLink} disabled={generatingLink} className="btn-premium btn-primary w-full flex justify-center items-center gap-2">
-                             {generatingLink ? <i className="fas fa-spinner fa-spin"></i> : null}
-                             {generatingLink ? "Generating..." : "Generate Link"}
+                         <button onClick={handleGenerateLink} disabled={generatingLink} className="btn-premium btn-primary w-full">
+                             {generatingLink ? "Generating..." : "Generate Links"}
                          </button>
                      </div>
                      
-                     <div className="border-l border-border pl-8 flex flex-col justify-center items-center text-center">
+                     {/* Results Column */}
+                     <div className="space-y-4">
                          {generatedLink ? (
-                             <div className="animate-fade-in w-full">
-                                 <div className="text-brand text-4xl mb-2"><i className="fas fa-check-circle"></i></div>
-                                 <div className="font-bold text-lg mb-2">Link Ready!</div>
-                                 <div className="bg-black/30 p-3 rounded border border-brand/30 text-xs break-all font-mono mb-4 text-brand">{generatedLink}</div>
-                                 <button onClick={() => navigator.clipboard.writeText(generatedLink)} className="btn-premium btn-secondary w-full">Copy to Clipboard</button>
-                             </div>
+                             <>
+                                {/* Guest Portal Link */}
+                                <div className="bg-black/30 p-4 rounded-lg border border-white/10">
+                                    <div className="text-sm font-bold text-white mb-2 flex items-center gap-2">
+                                        <i className="fas fa-user"></i> Guest Search Link
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <input readOnly value={generatedLink} className="input-premium text-xs" />
+                                        <button 
+                                            onClick={() => copyToClipboard(generatedLink, 'guest')} 
+                                            className="btn-premium btn-secondary px-3"
+                                        >
+                                            {copyFeedback === 'guest' ? 'Copied! ✅' : 'Copy'}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Client Selection Link */}
+                                <div className="bg-black/30 p-4 rounded-lg border border-white/10">
+                                    <div className="text-sm font-bold text-white mb-2 flex items-center gap-2">
+                                        <i className="fas fa-check-circle"></i> Client Selection Link
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <input readOnly value={clientSelectionLink} className="input-premium text-xs" />
+                                        <button 
+                                            onClick={() => copyToClipboard(clientSelectionLink, 'client')} 
+                                            className="btn-premium btn-secondary px-3"
+                                        >
+                                            {copyFeedback === 'client' ? 'Copied! ✅' : 'Copy'}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Assistant Upload Link */}
+                                <div className="bg-black/30 p-4 rounded-lg border border-white/10">
+                                    <div className="text-sm font-bold text-white mb-2 flex items-center gap-2">
+                                        <i className="fas fa-cloud-upload-alt"></i> Assistant Upload Link
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <input readOnly value={quickUploadLink} className="input-premium text-xs" />
+                                        <button 
+                                            onClick={() => copyToClipboard(quickUploadLink, 'upload')} 
+                                            className="btn-premium btn-secondary px-3"
+                                        >
+                                            {copyFeedback === 'upload' ? 'Copied! ✅' : 'Copy'}
+                                        </button>
+                                    </div>
+                                </div>
+                             </>
                          ) : (
-                             <div className="text-gray-500">
-                                 <i className="fas fa-link text-4xl mb-2 opacity-50"></i>
-                                 <p>Select events and generate a secure link for your guests.</p>
+                             <div className="h-full flex flex-col items-center justify-center text-gray-500 opacity-50">
+                                 <i className="fas fa-link text-4xl mb-2"></i>
+                                 <p className="text-center text-sm">Links will appear here</p>
                              </div>
                          )}
                      </div>

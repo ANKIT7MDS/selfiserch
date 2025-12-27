@@ -1,3 +1,4 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -417,41 +418,44 @@ body::before {
     box-shadow: 0 2px 5px rgba(0,0,0,0.5);
 }
 
-/* Faces Strip */
+/* Face Avatars (Google Photos Style) */
 .faces-scroll {
   display: flex;
-  gap: 16px;
+  gap: 20px;
   overflow-x: auto;
-  padding-bottom: 12px;
-  margin-bottom: 24px;
+  padding: 8px 4px 24px 4px; /* Space for scrollbar and hover effects */
 }
 
 .face-avatar-wrapper {
   flex-shrink: 0;
   text-align: center;
-  width: 80px;
   cursor: pointer;
+  width: 80px;
+  transition: transform 0.2s;
+}
+.face-avatar-wrapper:hover {
+    transform: translateY(-2px);
 }
 
 .face-avatar {
-  width: 64px;
-  height: 64px;
+  width: 70px;
+  height: 70px;
   border-radius: 50%;
-  border: 2px solid var(--border);
-  margin: 0 auto 8px;
-  background-size: cover;
-  background-position: center;
+  border: 3px solid var(--border);
+  margin: 0 auto;
+  background-color: #000;
   transition: all 0.2s;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.3);
 }
 
 .face-avatar-wrapper:hover .face-avatar {
   border-color: var(--primary);
-  transform: scale(1.1);
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2);
 }
 
 .face-avatar-wrapper.active .face-avatar {
   border-color: var(--success);
-  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2);
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.3);
 }
 
 /* Inputs & Forms */

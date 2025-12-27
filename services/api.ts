@@ -18,21 +18,17 @@ const getHeaders = (isPublic = false) => {
 };
 
 // HELPER: Robust AWS Lambda Response Parser
-// Extracts actual data from nested "body" strings or diverse JSON structures
 const parseAwsResponse = async (res: Response) => {
     const raw = await res.json();
     let data = raw;
     
-    // 1. Unwrap Lambda Proxy "body" if it's a string
     if (raw && raw.body && typeof raw.body === 'string') {
         try {
             data = JSON.parse(raw.body);
         } catch(e) {
             console.warn("Failed to parse body string", e);
-            // If body is not JSON, use raw
         }
     } else if (raw && raw.body) {
-        // If body is already an object
         data = raw.body;
     }
 
@@ -40,25 +36,40 @@ const parseAwsResponse = async (res: Response) => {
 };
 
 // HELPER: Normalize Keys (DynamoDB Capitalized Keys -> Lowercase)
+// CRITICAL FIX: Handles SelfieImage, selfie_url, etc.
 const normalizeItem = (item: any) => {
     if (!item || typeof item !== 'object') return item;
     const newItem: any = {};
+    
     Object.keys(item).forEach(key => {
-        // Convert 'Name' -> 'name', 'Mobile' -> 'mobile', etc.
         const lowerKey = key.toLowerCase();
-        // Handle specific mappings if needed, else just lowercase
-        if (key === 'FaceId' || key === 'face_id') newItem['face_id'] = item[key];
-        else if (key === 'FaceName' || key === 'name') newItem['name'] = item[key] || newItem['name']; // prioritize existing
-        else newItem[lowerKey] = item[key];
         
-        // Preserve CamelCase for specific fields if types require it, or map correctly
-        if (lowerKey === 'faceid') newItem['FaceId'] = item[key];
-        if (lowerKey === 'timestamp' || lowerKey === 'created_at') newItem['timestamp'] = item[key];
-        if (lowerKey === 'match_count') newItem['match_count'] = Number(item[key]);
+        // Basic mapping
+        newItem[lowerKey] = item[key];
+
+        // Specific overrides for your backend structure
+        if (key === 'FaceId' || key === 'face_id') newItem['face_id'] = item[key];
+        if (key === 'FaceName' || key === 'name') newItem['name'] = item[key] || newItem['name'];
+        
+        // LEAD / GUEST SPECIFIC FIXES
+        if (key === 'SelfieImage' || key === 'selfie_image' || key === 'selfie_b64') {
+            newItem['selfie_image'] = item[key];
+        }
+        if (key === 'MatchCount' || key === 'match_count') {
+            newItem['match_count'] = Number(item[key]);
+        }
+        if (key === 'Timestamp' || key === 'created_at') {
+            newItem['timestamp'] = item[key];
+        }
+        if (key === 'Mobile' || key === 'mobile') {
+            newItem['mobile'] = item[key];
+        }
     });
-    // Ensure critical fields exist
+
+    // Fallbacks
     if (!newItem.mobile && item.Mobile) newItem.mobile = item.Mobile;
     if (!newItem.name && item.Name) newItem.name = item.Name;
+    
     return newItem;
 };
 
@@ -77,7 +88,6 @@ export const Api = {
     const res = await fetch(`${API_BASE}/get-collections`, { headers: getHeaders() });
     if (!res.ok) throw new Error("Failed to fetch collections");
     const data = await parseAwsResponse(res);
-    // Standardize return structure
     return {
         Items: Array.isArray(data) ? data : (data.Items || data.collections || []),
         total_photo_count: data.total_photo_count || 0
@@ -198,7 +208,6 @@ export const Api = {
         body: JSON.stringify({ collection_id })
       });
       const data = await parseAwsResponse(res);
-      // Robustly find the list
       const list = Array.isArray(data) ? data : (data.people || data.items || data.faces || []);
       return { people: list };
     } catch (e) {
@@ -219,12 +228,10 @@ export const Api = {
 
   // --- Links & Guests ---
   generateLink: async (payload: { collection_id: string, event_ids: string[], expiry_hours: number, password?: string }) => {
-    // Ensure numbers are actually numbers and password is handled
     const cleanPayload: any = {
         ...payload,
         expiry_hours: Number(payload.expiry_hours) || 24
     };
-    // Backend may fail if password is an empty string; safer to remove it or send null/undefined
     if (!cleanPayload.password) delete cleanPayload.password;
     
     const res = await fetch(`${API_BASE}/generate-search-link`, {
@@ -247,15 +254,15 @@ export const Api = {
       if (!res.ok) return [];
 
       const data = await parseAwsResponse(res);
-      
-      // Determine where the array is
       let rawList: any[] = [];
+      
+      // Handle diverse response structures
       if (Array.isArray(data)) rawList = data;
-      else if (Array.isArray(data.leads)) rawList = data.leads;
-      else if (Array.isArray(data.items)) rawList = data.items;
-      else if (Array.isArray(data.Items)) rawList = data.Items; // DynamoDB style
+      else if (data && Array.isArray(data.leads)) rawList = data.leads;
+      else if (data && Array.isArray(data.items)) rawList = data.items;
+      else if (data && Array.isArray(data.Items)) rawList = data.Items;
 
-      // Normalize all items to ensure UI gets lowercase keys (name, mobile, etc.)
+      // CRITICAL: Normalize keys immediately
       return rawList.map(normalizeItem);
       
     } catch (e) {
