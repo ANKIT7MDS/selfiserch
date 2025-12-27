@@ -212,16 +212,22 @@ const CollectionManager = () => {
         password: linkPassword
       });
       
+      console.log("Link Generation Response:", res); // Debug log for checking backend response
+
+      // FIX: Check for both 'linkId' (camelCase) and 'link_id' (snake_case)
+      const finalLinkId = res.linkId || res.link_id || res.id;
+
       // Construct the shareable URL
-      if (res && res.linkId) {
-        const url = `${window.location.protocol}//${window.location.host}/#/?linkId=${res.linkId}`;
+      if (finalLinkId) {
+        const url = `${window.location.protocol}//${window.location.host}/#/?linkId=${finalLinkId}`;
         setGeneratedLink(url);
       } else {
-        alert("Failed to retrieve Link ID.");
+        console.warn("API Response missing ID:", res);
+        alert("Failed to retrieve Link ID. Check console for details.");
       }
     } catch (e) {
-      console.error(e);
-      alert("Error generating link");
+      console.error("Link Generation Error:", e);
+      alert("Error generating link. Please try again.");
     }
   };
 
