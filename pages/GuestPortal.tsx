@@ -90,6 +90,7 @@ const GuestPortal = () => {
   };
 
   const handleSearch = async () => {
+    console.log("Handle search clicked", selfie ? "Has selfie" : "No selfie", linkId);
     if (!selfie || !linkId) return;
     playSound('magic');
     setLoading(true);
@@ -97,8 +98,21 @@ const GuestPortal = () => {
     
     try {
       const res = await Api.findMatches(linkId, selfie);
-      // Determine matches based on API response structure
-      const foundMatches = res.matches || res.photos || [];
+      console.log("Search response:", res);
+      
+      // FIX: Robustly determine matches. 
+      // API might return an array directly OR an object { matches: [...] } OR { photos: [...] }
+      let foundMatches: Photo[] = [];
+      
+      if (Array.isArray(res)) {
+          foundMatches = res;
+      } else if (res.matches && Array.isArray(res.matches)) {
+          foundMatches = res.matches;
+      } else if (res.photos && Array.isArray(res.photos)) {
+          foundMatches = res.photos;
+      } else if (res.items && Array.isArray(res.items)) {
+          foundMatches = res.items;
+      }
       
       if (foundMatches.length > 0) {
         setMatches(foundMatches);
@@ -115,6 +129,7 @@ const GuestPortal = () => {
         setSelfie(null);
       }
     } catch (e: any) {
+      console.error("Search error", e);
       playSound('alert');
       alert("Search failed. Link might be expired.");
     } finally {
