@@ -8,7 +8,19 @@ import { Howl } from 'howler';
 
 const GuestPortal = () => {
   const location = useLocation();
-  const linkId = new URLSearchParams(location.search).get('linkId');
+  
+  // ROBUST LINK ID EXTRACTION
+  // Handles both /?linkId=123 and /#/guest?linkId=123 formats
+  const getLinkId = () => {
+      const params = new URLSearchParams(location.search);
+      if (params.get('linkId')) return params.get('linkId');
+      
+      // Fallback: Check full URL string for regex match
+      const match = window.location.href.match(/[?&]linkId=([^&]+)/);
+      return match ? match[1] : null;
+  };
+
+  const linkId = getLinkId();
   
   // App Flow State
   const [step, setStep] = useState<'capture' | 'form' | 'results'>('capture');
@@ -90,8 +102,17 @@ const GuestPortal = () => {
   };
 
   const handleSearch = async () => {
-    console.log("Handle search clicked", selfie ? "Has selfie" : "No selfie", linkId);
-    if (!selfie || !linkId) return;
+    console.log("Handle search clicked. LinkID:", linkId, "Has Selfie:", !!selfie);
+    
+    if (!linkId) {
+        playSound('alert');
+        return alert("Error: Link ID is missing. Please check your URL.");
+    }
+    if (!selfie) {
+        playSound('alert');
+        return alert("Please take a selfie or upload a photo first.");
+    }
+
     playSound('magic');
     setLoading(true);
     setScanText("AI Processing...");
@@ -122,7 +143,7 @@ const GuestPortal = () => {
         // Wait a bit for effect before transition
         setTimeout(() => {
             setStep('form');
-        }, 1500);
+        }, 800); // Reduced delay for snappier feel
       } else {
         playSound('alert');
         alert("No photos found matching your face. Try again with better lighting.");
