@@ -237,8 +237,8 @@ const CollectionManager = () => {
       const finalLinkId = res.linkId || res.link_id || res.id;
 
       if (finalLinkId) {
-        // Use explicit /guest route to avoid conflict with root handler
-        const url = `${window.location.protocol}//${window.location.host}/#/guest?linkId=${finalLinkId}`;
+        // The RootHandler is now robust enough to handle guest links on the "/" path.
+        const url = `${window.location.protocol}//${window.location.host}/#/?linkId=${finalLinkId}`;
         setGeneratedLink(url);
       } else {
         console.warn("API Response missing ID or searchUrl:", res);
