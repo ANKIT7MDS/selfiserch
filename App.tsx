@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { HashRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { Api } from './services/api';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import CollectionManager from './pages/CollectionManager';
@@ -35,21 +34,50 @@ const RequireAuth = ({ children, allowedRoles }: { children: React.ReactElement,
   return children;
 };
 
-const MainRouter = () => {
+// Component to handle the root path ("/") logic
+const RootHandler = () => {
   const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  const linkId = params.get('linkId');
+
+  // 1. If linkId is present, it's a Guest - Show Guest Portal immediately
+  if (linkId) {
+    return <GuestPortal />;
+  }
+
+  // 2. If valid session exists, go to Dashboard
+  const token = localStorage.getItem('idToken');
+  if (token) {
+    // Check if admin
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    if (user.groups && user.groups.includes('MasterAdmins')) {
+      return <Navigate to="/admin" replace />;
+    }
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  // 3. Otherwise, go to Login
+  return <Navigate to="/login" replace />;
+};
+
+const MainRouter = () => {
   const navigate = useNavigate();
-  const [isGuest, setIsGuest] = useState(false);
-  const [isClientSelect, setIsClientSelect] = useState(false);
-  const [isQuickUpload, setIsQuickUpload] = useState(false);
   const [isProcessingToken, setIsProcessingToken] = useState(true);
 
   useEffect(() => {
-    // 1. Check for Cognito Token
+    // Only handle Cognito Token parsing here
     const hash = window.location.hash;
-    if (hash && hash.includes('id_token')) {
+    // Note: In HashRouter, the actual hash fragment might be after the route hash. 
+    // We check the full URL for id_token usually passed by Cognito as a callback.
+    if (window.location.href.includes('id_token=')) {
        try {
-          const params = new URLSearchParams(hash.substring(hash.indexOf('#') + 1));
-          const idToken = params.get('id_token') || hash.split('id_token=')[1]?.split('&')[0];
+          const fullHash = window.location.href.split('#')[1] || ''; // Get part after first #
+          // Cognito might put parameters like #id_token=... directly or /#id_token=...
+          const params = new URLSearchParams(fullHash.replace('/', '')); // Strip leading slash if present
+          
+          // Fallback regex search if URLSearchParams fails on complex hash
+          const idTokenMatch = window.location.href.match(/id_token=([^&]+)/);
+          const idToken = params.get('id_token') || (idTokenMatch ? idTokenMatch[1] : null);
           
           if (idToken) {
             const payload = JSON.parse(atob(idToken.split('.')[1]));
@@ -74,35 +102,24 @@ const MainRouter = () => {
          console.error("Token parse error", e);
        }
     }
-
-    // 2. Check for Special Routes (Guest, Client, Quick Upload)
-    if (location.pathname.includes('client-select')) {
-        setIsClientSelect(true);
-    } else if (location.pathname.includes('quick-upload')) {
-        setIsQuickUpload(true);
-    } else {
-        const params = new URLSearchParams(location.search);
-        if (params.get('linkId') && !location.pathname.includes('login')) {
-            setIsGuest(true);
-        }
-    }
     
     setIsProcessingToken(false);
-  }, [location, navigate]);
+  }, [navigate]);
 
   if (isProcessingToken) {
-     return <div className="h-screen bg-black text-brand flex items-center justify-center">Verifying Access...</div>;
+     return <div className="h-screen bg-black text-brand flex items-center justify-center font-bold">Verifying Access...</div>;
   }
-
-  if (isQuickUpload) return <QuickUpload />;
-  if (isClientSelect) return <ClientSelection />;
-  if (isGuest) return <GuestPortal />;
 
   return (
     <Routes>
+      {/* Root Path Handler (Guest vs Auth vs Login) */}
+      <Route path="/" element={<RootHandler />} />
+
+      {/* Public Routes */}
       <Route path="/login" element={<Login />} />
       <Route path="/client-select" element={<ClientSelection />} />
       <Route path="/quick-upload/:collectionId" element={<QuickUpload />} />
+      <Route path="/guest" element={<GuestPortal />} /> {/* Fallback explicit guest route */}
       
       {/* Super Admin Routes */}
       <Route path="/admin" element={
@@ -125,7 +142,7 @@ const MainRouter = () => {
       } />
 
       {/* Default Redirect */}
-      <Route path="*" element={<Navigate to="/login" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 };
