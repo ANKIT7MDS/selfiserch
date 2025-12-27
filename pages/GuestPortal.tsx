@@ -231,7 +231,7 @@ const GuestPortal = () => {
           
           let count = 0;
           for(const url of urls) {
-              const blob = await fetch(url).then(r => r.blob());
+              const blob = await fetch(url as string).then(r => r.blob());
               folder?.file(`photo_${count+1}.jpg`, blob);
               count++;
           }

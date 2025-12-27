@@ -9,7 +9,7 @@ import ClientSelection from './pages/ClientSelection';
 import QuickUpload from './pages/QuickUpload';
 
 // Auth Wrapper
-const RequireAuth = ({ children, allowedRoles }: { children: React.ReactElement, allowedRoles?: string[] }) => {
+const RequireAuth = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
   const token = localStorage.getItem('idToken');
   const userStr = localStorage.getItem('user');
   
@@ -34,7 +34,7 @@ const RequireAuth = ({ children, allowedRoles }: { children: React.ReactElement,
     // Implicit Photographer Role: Everyone who is logged in (and not explicitly restricted) is a Photographer
     if (allowedRoles.includes('Photographer')) {
        // If they are logged in, allow access (unless they are MasterAdmins handled above)
-       return children;
+       return <>{children}</>;
     }
 
     if (!hasRole) {
@@ -44,7 +44,7 @@ const RequireAuth = ({ children, allowedRoles }: { children: React.ReactElement,
     }
   }
 
-  return children;
+  return <>{children}</>;
 };
 
 // Component to handle the root path ("/") logic
