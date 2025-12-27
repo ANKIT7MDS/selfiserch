@@ -71,7 +71,7 @@ const CollectionManager = () => {
           }
       }
       
-      // Face Logic
+      // Face Logic: Aggregate faces from photos and merge with saved names
       const calculatedFaces = buildFacesFromPhotos(loadedPhotos);
       try {
         const savedData = await Api.listPeople(id);
@@ -85,7 +85,10 @@ const CollectionManager = () => {
             FaceName: nameMap.get(cF.FaceId) || cF.FaceName || "Unknown"
         }));
         setFaces(mergedFaces);
-      } catch(e) { setFaces(calculatedFaces); }
+      } catch(e) { 
+        console.warn("Failed to load face names", e);
+        setFaces(calculatedFaces); 
+      }
 
       // Lead Logic
       try {
@@ -119,9 +122,11 @@ const CollectionManager = () => {
 
   const getFilteredPhotos = () => {
     let res = photos;
+    // Filter by Face
     if (filterFaceId) {
         res = res.filter(p => p.faces && p.faces.some((f: any) => (f.FaceId === filterFaceId || f.face_id === filterFaceId)));
     }
+    // Filter by Event
     if (filterEventId !== 'All') res = res.filter(p => p.event_id === filterEventId);
     return res;
   };
@@ -172,7 +177,7 @@ const CollectionManager = () => {
       return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + ['B', 'KB', 'MB', 'GB'][i];
   };
 
-  // Helper to get face image style
+  // Helper to get face image style (Focus crop)
   const getFaceStyle = (url: string, bbox: any) => {
       if (!url) return {};
       // Calculate crop based on bounding box if available
@@ -210,7 +215,6 @@ const CollectionManager = () => {
     setGeneratedLink("");
     
     try {
-      // Treat empty string password as undefined
       const cleanPassword = linkPassword.trim() === "" ? undefined : linkPassword;
 
       const res = await Api.generateLink({
@@ -222,7 +226,7 @@ const CollectionManager = () => {
       
       console.log("Link Generation Response:", res); 
 
-      // 1. Try to get direct URL from response (support camelCase and snake_case)
+      // 1. Try to get direct URL from response
       const directUrl = res.searchUrl || res.search_url || res.url;
       if (directUrl) {
           setGeneratedLink(directUrl);
@@ -252,13 +256,13 @@ const CollectionManager = () => {
     const newName = prompt("Name this person:", currentName === "Unknown" ? "" : currentName);
     if (newName !== null && newName.trim() !== "" && newName !== currentName) {
         try {
-            // Optimistic update
+            // Optimistic update for UI responsiveness
             setFaces(prev => prev.map(f => f.FaceId === faceId ? { ...f, FaceName: newName } : f));
             await Api.saveFaceName(id, faceId, newName);
         } catch (e) {
             console.error(e);
             alert("Failed to save name");
-            loadData();
+            loadData(); // Revert on error
         }
     }
   };
@@ -362,7 +366,7 @@ const CollectionManager = () => {
               </div>
             </div>
 
-            {/* Faces */}
+            {/* Face Grouping Section */}
             <div className="faces-scroll">
               <div 
                 className={`face-avatar-wrapper ${!filterFaceId ? 'active' : ''}`} 
@@ -373,6 +377,7 @@ const CollectionManager = () => {
                 </div>
                 <div className="text-xs font-bold text-white">Everyone</div>
               </div>
+              
               {faces.map(face => (
                 <div 
                   key={face.FaceId}
@@ -386,7 +391,7 @@ const CollectionManager = () => {
                           e.stopPropagation();
                           handleRenameFace(face.FaceId, face.FaceName);
                       }}
-                      title="Click to rename"
+                      title="Click name to rename"
                   >
                       {face.FaceName} <i className="fas fa-pencil-alt text-[8px] text-gray-500"></i>
                   </div>
@@ -395,7 +400,7 @@ const CollectionManager = () => {
               ))}
             </div>
 
-            {/* Grid */}
+            {/* Photo Grid */}
             <div className="gallery-grid">
               {displayedPhotos.map(photo => {
                 const isSelected = selectedPhotos.has(photo.photo_id);
@@ -418,7 +423,7 @@ const CollectionManager = () => {
                 );
               })}
             </div>
-            {displayedPhotos.length === 0 && <div className="text-center py-10 text-gray-500">No photos found.</div>}
+            {displayedPhotos.length === 0 && <div className="text-center py-10 text-gray-500">No photos found in this view.</div>}
           </div>
         )}
 
