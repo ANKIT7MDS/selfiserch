@@ -37,10 +37,26 @@ const RequireAuth = ({ children, allowedRoles }: { children: React.ReactElement,
 // Component to handle the root path ("/") logic
 const RootHandler = () => {
   const location = useLocation();
-  const params = new URLSearchParams(location.search);
-  const linkId = params.get('linkId');
 
-  // 1. If linkId is present, it's a Guest - Show Guest Portal immediately
+  // ROBUST LINK DETECTION:
+  // Check React Router location, Window Hash, and Window Search to find linkId anywhere.
+  // This prevents logged-in photographers from being redirected to dashboard when clicking a guest link.
+  const getLinkId = () => {
+    // 1. Check React Router parsed search
+    const params = new URLSearchParams(location.search);
+    if (params.get('linkId')) return params.get('linkId');
+
+    // 2. Check raw window location href (covers edge cases with HashRouter placement)
+    if (window.location.href.includes('linkId=')) {
+        const match = window.location.href.match(/linkId=([^&]+)/);
+        if (match && match[1]) return match[1];
+    }
+    return null;
+  };
+
+  const linkId = getLinkId();
+
+  // 1. If linkId is present ANYWHERE, it's a Guest - Show Guest Portal immediately
   if (linkId) {
     return <GuestPortal />;
   }
